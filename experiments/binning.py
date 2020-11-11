@@ -30,16 +30,17 @@ def equal_freq(data, k):
         :returns: array of dtype int corresponding to binning
         For example:
         >>> equal_freq(np.array([0, 0.5, 2, 5, 10]), 3)
-        array([0, 0, 0, 1, 1])
+        array([0, 1, 2, 2, 2])
         >>> equal_freq(np.array([2.0, 3.5, 2.7]), 1)
-        array([0, 2, 1])
+        array([0, 0, 0])
         >>> equal_freq(np.array([2.0, 3.5, 2.7]), 2)
-        array([0, 1, 0])
+        array([0, 1, 1])
         """
     index = np.argsort(data)
     res = np.zeros_like(index, dtype='int')
+    h = int(len(data)/k)
     for i in range(len(data)):
-        res[i] = index[i] // k
+        res[i] = index[i] // h if index[i] // h < k else k-1
     return res
 
 

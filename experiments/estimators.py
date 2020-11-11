@@ -117,17 +117,14 @@ def James_estimate(data):
 
     var_unbias = 0
     var_mle = 0
-
     for i in range(len(unique)):
         var_unbias += (1 / p - counts[i] / n) ** 2
         var_mle += (counts[i] / n) ** 2
-
     _lambda = 1 if n == 1 or var_unbias == 0 else (1 - var_mle) / ((n - 1) * var_unbias)
     _lambda = 1 if _lambda > 1 else _lambda
     _lambda = 0 if _lambda < 0 else _lambda
 
     result = 0
-
     for i in range(len(counts)):
         shrink_estimator = _lambda / p + (1 - _lambda) * counts[i] / n
         result += -shrink_estimator * math.log(shrink_estimator, 2)

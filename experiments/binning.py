@@ -21,6 +21,7 @@ def equal_width(data, k, a=None, b=None):
     res = np.zeros_like(data, dtype='int')
     for i in range(len(data)):
         res[i] = int((data[i] - a) // h) - (data[i] % h == 0 and data[i]!=a)
+        res[i] = k-1 if res[i] >= k-1 else res[i]
     return res
 
 def equal_freq(data, k):
@@ -30,18 +31,22 @@ def equal_freq(data, k):
         :returns: array of dtype int corresponding to binning
         For example:
         >>> equal_freq(np.array([0, 0.5, 2, 5, 10]), 3)
-        array([0, 1, 2, 2, 2])
+        array([0, 0, 1, 1, 2])
         >>> equal_freq(np.array([2.0, 3.5, 2.7]), 1)
         array([0, 0, 0])
         >>> equal_freq(np.array([2.0, 3.5, 2.7]), 2)
-        array([0, 1, 1])
+        array([0, 1, 0])
         """
-    index = np.argsort(data)
-    res = np.zeros_like(index, dtype='int')
-    h = int(len(data)/k)
-    for i in range(len(data)):
-        res[i] = index[i] // h if index[i] // h < k else k-1
-    return res
+    nlen = len(data)
+    index = sorted(range(len(data)), key=data.__getitem__)
+    range_list = np.interp(np.linspace(0, nlen, k + 1),
+                           np.arange(nlen),
+                           np.sort(index))
+
+    for i in range(k):
+        for j in range(len(index)):
+            index[j] = i if range_list[i] <= index[j] and index[j] <= range_list[i + 1] else index[j]
+    return np.array(index)
 
 
 if __name__=='__main__':

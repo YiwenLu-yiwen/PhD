@@ -106,19 +106,19 @@ def jack(data):
     result = n * nai - (n - 1) / n * current
     return result
 
-def check_lambda(data):
+def check_parameter(data):
     """
     This part is for checking shrinkage lambda
     :param data: numpy array data
-    :return: shrinkage lambda estimator
+    :return: lambda, tk, n
 
     For example:
-    >>> check_lambda(np.array([0, 3, 0, 1, 0, 1, 2, 1, 0, 0, 0, 0, 1, 3, 4]))
-    0.423076923076923
-    >>> check_lambda(np.array([2.0, 3.5, 2.7]))
-    1
-    >>> check_lambda(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
-    1
+    >>> check_parameter(np.array([0, 3, 0, 1, 0, 1, 2, 1, 0, 0, 0, 0, 1, 3, 4]))
+    (0.423076923076923, 0.2, 15, [0.35384615384615387, 0.23846153846153845, 0.12307692307692307, 0.16153846153846152, 0.12307692307692307], [0.5303466878514332, 0.49317935832222276, 0.3719837308342713, 0.424854293809566, 0.3719837308342713])
+    >>> check_parameter(np.array([2.0, 3.5, 2.7]))
+    (1, 0.3333333333333333, 3, [0.3333333333333333, 0.3333333333333333, 0.3333333333333333], [0.5283208335737187, 0.5283208335737187, 0.5283208335737187])
+    >>> check_parameter(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
+    (1, 0.3333333333333333, 6, [0.3333333333333333, 0.3333333333333333, 0.3333333333333333], [0.5283208335737187, 0.5283208335737187, 0.5283208335737187])
     """
     unique, counts = np.unique(data, return_counts=True)
     p = len(unique)
@@ -132,7 +132,17 @@ def check_lambda(data):
     _lambda = 1 if n == 1 or var_unbias == 0 else (1 - var_mle) / ((n - 1) * var_unbias)
     _lambda = 1 if _lambda > 1 else _lambda
     _lambda = 0 if _lambda < 0 else _lambda
-    return _lambda
+
+    result = 0
+    shrink_estimator_list = []
+    entropy_list = []
+    for i in range(len(counts)):
+        shrink_estimator = _lambda / p + (1 - _lambda) * counts[i] / n
+        result += -shrink_estimator * math.log(shrink_estimator, 2)
+        shrink_estimator_list.append(shrink_estimator)
+        entropy_list.append(-shrink_estimator * math.log(shrink_estimator, 2))
+
+    return _lambda, 1/p, n, shrink_estimator_list, entropy_list
 
 def James_estimate(data):
     """Get James Shrinkage entropy estimatation
@@ -148,7 +158,7 @@ def James_estimate(data):
     for i in range(len(unique)):
         var_unbias += (1 / p - counts[i] / n) ** 2
         var_mle += (counts[i] / n) ** 2
-    _lambda = 1 if n == 1 or var_unbias == 0 else (1 - var_mle) / ((n - 1) * var_unbias)
+    _lambda = 1 if var_unbias == 0 else (1 - var_mle) / ((n - 1) * var_unbias)
     _lambda = 1 if _lambda > 1 else _lambda
     _lambda = 0 if _lambda < 0 else _lambda
 

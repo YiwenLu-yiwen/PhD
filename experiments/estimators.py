@@ -106,6 +106,34 @@ def jack(data):
     result = n * nai - (n - 1) / n * current
     return result
 
+def check_lambda(data):
+    """
+    This part is for checking shrinkage lambda
+    :param data: numpy array data
+    :return: shrinkage lambda estimator
+
+    For example:
+    >>> check_lambda(np.array([0, 3, 0, 1, 0, 1, 2, 1, 0, 0, 0, 0, 1, 3, 4]))
+    0.423076923076923
+    >>> check_lambda(np.array([2.0, 3.5, 2.7]))
+    1
+    >>> check_lambda(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
+    1
+    """
+    unique, counts = np.unique(data, return_counts=True)
+    p = len(unique)
+    n = sum(counts)
+
+    var_unbias = 0
+    var_mle = 0
+    for i in range(len(unique)):
+        var_unbias += (1 / p - counts[i] / n) ** 2
+        var_mle += (counts[i] / n) ** 2
+    _lambda = 1 if n == 1 or var_unbias == 0 else (1 - var_mle) / ((n - 1) * var_unbias)
+    _lambda = 1 if _lambda > 1 else _lambda
+    _lambda = 0 if _lambda < 0 else _lambda
+    return _lambda
+
 def James_estimate(data):
     """Get James Shrinkage entropy estimatation
     :param data: numpy array data
@@ -129,6 +157,7 @@ def James_estimate(data):
         shrink_estimator = _lambda / p + (1 - _lambda) * counts[i] / n
         result += -shrink_estimator * math.log(shrink_estimator, 2)
     return result
+
 
 if __name__=='__main__':
     import doctest

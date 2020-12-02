@@ -37,17 +37,28 @@ def equal_freq(data, k):
         >>> equal_freq(np.array([2.0, 3.5, 2.7]), 2)
         array([0, 1, 0])
         """
-    nlen = len(data)
-    index = sorted(range(len(data)), key=data.__getitem__)
-    range_list = np.interp(np.linspace(0, nlen, k + 1),
-                           np.arange(nlen),
-                           np.sort(index))
 
-    for i in range(k):
-        for j in range(len(index)):
-            index[j] = i if range_list[i] <= index[j] and index[j] <= range_list[i + 1] else index[j]
-    return np.array(index)
+    bins_list = []
+    n = len(data)
+    sub = []  # record sublist values
+    datalist = sorted(data)
+    i = 0
+    result = [0 for _ in range(n)]
+    while i <= len(datalist):
+        if len(sub) >= int(n / k) and len(bins_list) != k - 1:
+            bins_list.append((min(sub), max(sub)))  # record minimum and maximum
+            sub = []
+        if i == len(datalist):
+            bins_list.append((min(sub), max(sub)))  # record minimum and maximum
+            break
+        sub.append(datalist[i])
+        i += 1
 
+    for j in range(k):
+        for l in range(n):
+            if data[l] >= min(bins_list[j]) and data[l] <= max(bins_list[j]):
+                result[l] = j
+    return result
 
 if __name__=='__main__':
     import doctest

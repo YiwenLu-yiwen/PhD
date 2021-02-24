@@ -13,9 +13,8 @@ def get_fingers(data):
     >>> get_fingers(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
     array([1, 1, 1, 0, 0, 0])
     """
-    fingerprints = np.zeros_like(data, dtype='int')
-    unique, counts = np.unique(data, return_counts=True)
-
+    fingerprints = np.zeros(len(data), dtype='int')
+    unique, counts = np.unique(data.astype("<U22"), axis=0, return_counts=True)
     for indx in counts:
         fingerprints[indx-1] += 1
     return fingerprints

@@ -1,3 +1,12 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+"""
+GAM model for building variables
+"""
+=======
+>>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
+=======
+>>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
 from sklearn.base import BaseEstimator
 from pygam.terms import TermList, te, SplineTerm
 from pygam import LinearGAM, LogisticGAM

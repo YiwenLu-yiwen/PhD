@@ -4,6 +4,9 @@ import random
 from estimators import *
     
 class MedianSplitTree():
+    """This is random projection splitting tree. We want to use this algorithm handling continuous variables.
+    For each leave splitting, we use minimum AIC criteria.
+    """
     
     def __init__(self, value_lst, target, estimator='naive_estimate'):
         self.val = value_lst

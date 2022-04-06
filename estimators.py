@@ -83,27 +83,29 @@ def coverge(data):
     return result
 
 
-def jack(data):
+def jackknifed(data):
     """Get Jackknifed naive entropy estimation
     :param data: numpy array data
     :return: Jackknifed naive entropy estimation
     For example:
-    >>> jack(np.array([0, 3, 0, 1, 0, 1, 2, 1, 0, 0, 0, 0, 1, 3, 4]))
+    >>> jackknifed(np.array([0, 3, 0, 1, 0, 1, 2, 1, 0, 0, 0, 0, 1, 3, 4]))
     2.2355622825293118
-    >>> jack(np.array([2.0, 3.5, 2.7]))
+    >>> jackknifed(np.array([2.0, 3.5, 2.7]))
     2.754887502163469
-    >>> jack(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
+    >>> jackknifed(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
     1.856024112141725
     """
     current = 0
     n = len(data)
+    unique, counts = np.unique(data.astype("<U22"), axis=0, return_counts=True)
     for i in range(n):
         copy_data = np.delete(data, i, 0)
-        current_nai = naive_estimate(copy_data)
-        current += current_nai
+        current += naive_estimate(copy_data)
     nai = naive_estimate(data)
     result = n * nai - (n - 1) / n * current
     return result
+
+
 
 def check_parameter(data):
     """
@@ -118,8 +120,10 @@ def check_parameter(data):
     (1, 0.3333333333333333, 3, [0.3333333333333333, 0.3333333333333333, 0.3333333333333333], [0.5283208335737187, 0.5283208335737187, 0.5283208335737187])
     >>> check_parameter(np.array([2.0, 5.0, 3.0, 3.0, 5.0, 3.0]))
     (1, 0.3333333333333333, 6, [0.3333333333333333, 0.3333333333333333, 0.3333333333333333], [0.5283208335737187, 0.5283208335737187, 0.5283208335737187])
+    >>> check_parameter(np.array([[2.0, 1, 2], [3.5, 3, 1], [2.7, 3, 5]]))
+    (1, 0.3333333333333333, 3, [0.3333333333333333, 0.3333333333333333, 0.3333333333333333], [0.5283208335737187, 0.5283208335737187, 0.5283208335737187])
     """
-    unique, counts = np.unique(data, return_counts=True)
+    unique, counts = np.unique(data.astype("<U22"), axis=0, return_counts=True)
     p = len(unique)
     n = sum(counts)
 
@@ -143,12 +147,12 @@ def check_parameter(data):
 
     return _lambda, 1/p, n, shrink_estimator_list, entropy_list
 
-def James_estimate(data):
-    """Get James Shrinkage entropy estimatation
+def james_estimate(data):
+    """Get James-Stein Shrinkage entropy estimatation
     :param data: numpy array data
     :return: \hat H^{shrink}
     """
-    unique, counts = np.unique(data, return_counts=True)
+    unique, counts = np.unique(data.astype("<U22"), axis=0, return_counts=True)
     p = len(unique)
     n = sum(counts)
 
@@ -164,9 +168,72 @@ def James_estimate(data):
     result = 0
     for i in range(len(counts)):
         shrink_estimator = _lambda / p + (1 - _lambda) * counts[i] / n
-        result += -shrink_estimator * math.log(shrink_estimator, 2)
+        result += -shrink_estimator * math.log2(shrink_estimator)
     return result
 
+# naive mutual information
+def entropy(Y, name='naive'):
+    """
+    H(Y)
+    """
+    if name =='naive':
+        entro = naive_estimate(Y)
+    elif name == 'jame':
+        entro = james_estimate(Y)
+    elif name == 'jack':
+        entro = jackknifed(Y)
+    else:
+        raise Exception('estimator name is wrong')
+    # unique, count = np.unique(Y.astype('<U22'), return_counts=True, axis=0)
+    # prob = count/len(Y)
+    # entro = np.sum((-1)*prob*np.log2(prob))
+    return abs(entro)
+
+
+def jEntropy(X, Y, name='naive'):
+    """
+    H(X,Y)
+    """
+    XY = np.c_[X, Y]
+    return entropy(XY, name)
+
+
+def cEntropy(Y, X, name='naive'):
+    """
+    H(Y|X) = H(X,Y) - H(X)
+    """
+    return jEntropy(X, Y, name) - entropy(X, name)
+
+
+def gain(X, Y, name = 'naive'):
+    """
+    Information Gain, I(X;Y) = H(Y) - H(Y|X)
+    """
+    return entropy(Y, name) - cEntropy(Y, X, name)
+
+
+def fGain(X, Y, name ='naive'):
+    """
+    Fraction of information, F(X;Y) = I(X;Y)/H(Y)
+    """
+    return gain(X, Y, name) / entropy(Y, name)
+
+
+def cab(a, b, result=1):
+    """
+    Function of C^a_b = a*...(a-b+1)/b!
+    """
+    if b == 0:
+        return 1
+    if b < 0:
+        raise Exception("Expect boundary larger than 0")
+    elif a < b:
+        return 0
+    while b > 0:
+        result *= a / b
+        a -= 1
+        b -= 1
+    return result
 
 if __name__=='__main__':
     import doctest

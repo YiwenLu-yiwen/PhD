@@ -1,14 +1,10 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 """
 This algorithm is targeted as permutation model i.e expectation of reliable mutual information
 """
-=======
->>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
-=======
->>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
-from Functions import *
+from estimators import *
 import math
+import numpy as np
+
 
 class Permutation():
 

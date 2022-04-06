@@ -1,5 +1,4 @@
 from operator import ne
-import re
 import numpy as np
 from scipy.stats import norm, entropy, uniform, bernoulli
 from matplotlib import pyplot as plt
@@ -101,12 +100,17 @@ def generate_data(df, n, irr=100):
         df[name] = num
     return df
 
-def single_sel(parameters, types, tree_rep=1):
-    # find best rp_tree , pairs, subset, targes 
-    """data is the sublist of predictors in X, y_dic is the values of Y
-    parameters: combination of data & y.  # add documents
+def single_sel(predictor_target, types, tree_rep=1):
+    """This function provides the minimum aic by given data
+    Input:
+            predictor_target: combination of tuples for example (data  y).
+            types: tree type: 'kd' or 'rp'
+            tree_rep: num of repetitions to select best aic
+    Output:
+            best_aic: global minimum aic value
+            final_fmi: fmi based on best aic
     """
-    data, y = parameters
+    data, y = predictor_target
     best_aic = np.infty
     for _ in range(tree_rep):
         aic, fmi = MedianSplitTree([data], y).makeWholeTree(types)
@@ -116,7 +120,20 @@ def single_sel(parameters, types, tree_rep=1):
     return best_aic, final_fmi
 
 def variable_sel(predictors, y, chosen_lst, evaluation = 'aic_only', tree_types='rp', tree_rep=1, result_lst = [None, None], stop=False):
-    """This is total algorithm for the variable selection
+    """This is total algorithm for the variable selection. We first get the whole combination of predictors and then select one predictor which has minimum aic 
+    values. After that, based on the previous selected predictors, we select a new predictor which can minimize the aic value.
+    Input:
+        predictors: predictors, can be a dataframe
+        y: target variables, can be list/array
+        chosen_lst: selected predictors name
+        evaluation: criteria for example "aic-only" and 'averaging model' (not available now)
+        tree_types: type of splitting, for example rp/kd refer to 'RP-tree/KD-tree'
+        tree_rep: num of repetition to get local minimum aic value
+        result_lst: store the aic, fmi
+        stop: boolen operator, "False" if let this recursive function runs. 'True' to stop the function
+    Output:
+        chosen_lst: selected predictors name
+        result_lst: best aic, fmi
     """
     if stop==True:
         return chosen_lst, result_lst

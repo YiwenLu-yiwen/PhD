@@ -1,6 +1,8 @@
 import math
 import numpy as np
-import random   
+import random
+
+from sklearn.model_selection import train_test_split, KFold
 from estimators import naive_estimate
 from copy import deepcopy
 from sklearn.utils import check_X_y
@@ -49,7 +51,7 @@ def get_split(dataset):
                 b_index, b_value, b_score, b_groups = index, row[index], loss, groups
     return {'index':b_index, 'value':b_value, 'groups':b_groups}
 
-class FunctionTree:
+class functionTree:
     """This is only for random projection median splitting tree. We want to use this algorithm handling continuous variables.
     We create a branch of trees and select best AIC tree. However, we find that the minimum AIC values always appear in the first split.
     With number of split increases, AIC increases and loglikelihood decreases. May not work in the variable selection.
@@ -90,7 +92,7 @@ class FunctionTree:
         """
         return np.dot(x, y) / np.linalg.norm(y)
     
-    def nodeLoglikelihood(self, leaf_lst: list, n: int, AIC: bool) -> tuple:
+    def nodeLoglikelihood(self, leaf_lst: list, n: int, AIC: bool, y_dic: dict) -> tuple:
         """Get each node entropy/loglikelihood using an MI_estimator
         Input:
             leaf_lst: a built RP_tree last layer leaves list
@@ -108,7 +110,7 @@ class FunctionTree:
         for leaf in leaf_lst:
             temp = []
             for code in leaf:
-                temp.append(self.y_dic[tuple(code)])
+                temp.append(y_dic[tuple(code)])
             temp_all.append([leaf, temp])
             y_leaves.append(temp)
         leafLikelihood = np.array([naive_estimate(np.array(code))*len(code) for code in y_leaves]) # each H(Y|X=x) * c(x, y)
@@ -186,7 +188,9 @@ class FunctionTree:
                 rules: rule details
                 self: best tree
         """
-        self.val = [tuple([tuple(each) for each in predictor.values.tolist()])]
+        self.all_rules = [[]]
+        predictor, target = check_X_y(predictor, target)
+        self.val = [tuple([tuple(each) for each in predictor.tolist()])]
         self.y_entropy = naive_estimate(np.array(target))
         self.target = target
         self.y_dic = dict(zip(self.val[0], target))
@@ -234,7 +238,8 @@ class FunctionTree:
 
                 temp_rules = rules_lst + copy_rules
                 temp_lst = split_lst + copy_data # if copy_data else split_lst
-                aic, fmi, logs, k, probs = self.nodeLoglikelihood(temp_lst, length, self.AIC)
+
+                aic, fmi, logs, k, probs = self.nodeLoglikelihood(temp_lst, length, self.AIC, self.y_dic)
                 if pre_aic == None or aic < pre_aic:
                     non_cnts = 0
                     result = [aic, fmi, k, temp_rules, probs]
@@ -243,7 +248,6 @@ class FunctionTree:
                     non_cnts += 1
                 if non_cnts > 50: #apply early stopping, if 50 more leaves can't improve the tree, we don't generate anymore
                     stop=True
-                    print(len(temp_rules))
                     break
 
             self.all_rules = deepcopy(temp_rules)
@@ -258,7 +262,6 @@ class FunctionTree:
             if non_cnts > 50:
                 stop=True
         self.all_rules, self.probs = result[-2:]
-
         return result[:-1], self
 
     def predict(self, data, y):
@@ -269,9 +272,10 @@ class FunctionTree:
             risk: average error rate
             ids_lst: each data locates in which leaf
         """
-        data = [tuple(each) for each in data.values.tolist()]
+        data, y = check_X_y(data, y)
+        data = [tuple(each) for each in data.tolist()]
         y_dic = dict(zip(data, y))
-        location_lst = [[] for _ in range(len(self.probs))]
+        location_lst = [[] for _ in range(len(self.all_rules))]
         partition_lst = deepcopy(location_lst)
         ids_dic = {}
         def check_single_rule(point, rule):
@@ -323,3 +327,42 @@ class FunctionTree:
 
         ids_lst = ids_dic.values()
         return partition_lst, loss, risk, ids_lst
+
+
+class rpTree(functionTree):
+
+    def __init__(self, option='rp', AIC=True, estimator='naive_estimate'):
+        super().__init__(option, AIC, estimator)
+
+
+
+class kdTree(functionTree):
+    
+    def __init__(self, option='kd', AIC=True, estimator='naive_estimate'):
+        super().__init__(option, AIC, estimator)
+
+
+
+class classifcationTree(functionTree):
+
+    def __init__(self, option='classification', AIC=True, estimator='naive_estimate'):
+        super().__init__(option, AIC, estimator)
+
+
+class honestTree(functionTree):
+
+    def __init__(self, option='classification', AIC=True, estimator='naive_estimate'):
+        super().__init__(option, AIC, estimator)
+
+    def fit(self, predictor: list, target: list):
+        predictor, target = check_X_y(predictor, target)
+        X_train, X_test, y_train, y_test = train_test_split(
+            predictor, target, test_size=0.5)
+        result, tree = super().fit(X_train, y_train)
+        partition_lst, loss, risk, ids_lst = tree.predict(X_test, y_test)
+        n = len(X_test)
+        X_test = tuple([tuple(each) for each in X_test.tolist()])
+        y_dic = dict(zip(X_test, y_test))
+        partition_lst = [each for each in partition_lst if each]
+        aic, fmi, tree_loglikelihood, k, probs = tree.nodeLoglikelihood(partition_lst, n, AIC=self.AIC, y_dic=y_dic)
+        return [aic, fmi, k, None], tree

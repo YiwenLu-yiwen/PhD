@@ -39,7 +39,7 @@ def forward_selection(data, target):
     initial_features = data.columns.tolist()
     initial_features.sort()
     best_features = []
-    previous_aic = None
+    best_aic = None
     initial_features = data.columns.tolist()
     best_features = []
     while (len(initial_features)>0):
@@ -53,15 +53,15 @@ def forward_selection(data, target):
                 new_pval[new_column] = len(best_features+[new_column])/2 * math.log(len(target)) # this is model bic
         min_aic_value = new_pval.min()
 
-        if(previous_aic == None or previous_aic > min_aic_value):
+        if(best_aic == None or best_aic > min_aic_value):
             best_features.append(new_pval.idxmin())
-            previous_aic = min_aic_value
+            best_aic = min_aic_value
         else:
             break
         best_features.sort()
         if best_features == initial_features:
             break
-    return best_features
+    return best_features, best_aic
 
 def lasso_base_model(X, y):
     """This algorithm use lasso regression and variable selection is based on the coeffient.

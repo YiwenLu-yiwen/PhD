@@ -57,7 +57,7 @@ class functionTree:
     With number of split increases, AIC increases and loglikelihood decreases. May not work in the variable selection.
     """
     
-    def __init__(self, option='kd', AIC=True, estimator='naive_estimate'):
+    def __init__(self, option='kd', AIC=True, estimator='naive_estimate', Rep=1):
         """Choose to use different options and different AIC/BIC criteria
         """
         self.probs = None
@@ -73,6 +73,7 @@ class functionTree:
         self.y_dic = None
         self.length = None
         self.num_leaves = None
+        self.rep = Rep # control repeatition
 
     def __str__(self):
         return str(self.val)
@@ -178,8 +179,21 @@ class functionTree:
         res_right =  [each[:-1] for each in dic['groups'][1]]
         return res_left, res_right, (sel,rule)
         
-
+    
     def fit(self: object, predictor:list, target:list):
+        if self.rep > 1:
+            return self.repeatfit(predictor, target, self.rep)
+        return self.singlefit(predictor, target)
+
+    def repeatfit(self: object, predictor:list, target:list, rep: int):
+        best_tree = None
+        for i in range(rep):
+            current_result, current_tree = self.singlefit(predictor, target)
+            if best_tree == None or best_result[0] > current_result[0]:
+                best_result, best_tree = current_result, current_tree
+        return best_result, best_tree
+        
+    def singlefit(self: object, predictor:list, target:list):
         """After each splitting, we use AIC criteria to control how to split the nodes. The output is the global minimum AIC values and its FMI
         Input: option: 'kd', 'rp', 'classification'
         Output: aic: best tree aic values
@@ -331,28 +345,28 @@ class functionTree:
 
 class rpTree(functionTree):
 
-    def __init__(self, option='rp', AIC=True, estimator='naive_estimate'):
-        super().__init__(option, AIC, estimator)
+    def __init__(self, option='rp', AIC=True, estimator='naive_estimate', Rep=1):
+        super().__init__(option, AIC, estimator, Rep)
 
 
 
 class kdTree(functionTree):
     
-    def __init__(self, option='kd', AIC=True, estimator='naive_estimate'):
-        super().__init__(option, AIC, estimator)
+    def __init__(self, option='kd', AIC=True, estimator='naive_estimate', Rep=1):
+        super().__init__(option, AIC, estimator, Rep)
 
 
 
 class classifcationTree(functionTree):
 
-    def __init__(self, option='classification', AIC=True, estimator='naive_estimate'):
-        super().__init__(option, AIC, estimator)
+    def __init__(self, option='classification', AIC=True, estimator='naive_estimate', Rep=1):
+        super().__init__(option, AIC, estimator, Rep)
 
 
 class honestTree(functionTree):
 
-    def __init__(self, option='classification', AIC=True, estimator='naive_estimate'):
-        super().__init__(option, AIC, estimator)
+    def __init__(self, option='classification', AIC=True, estimator='naive_estimate', Rep=1):
+        super().__init__(option, AIC, estimator, Rep)
 
     def fit(self, predictor: list, target: list):
         predictor, target = check_X_y(predictor, target)
@@ -366,3 +380,39 @@ class honestTree(functionTree):
         partition_lst = [each for each in partition_lst if each]
         aic, fmi, tree_loglikelihood, k, probs = tree.nodeLoglikelihood(partition_lst, n, AIC=self.AIC, y_dic=y_dic)
         return [aic, fmi, k, None], tree
+
+if __name__ == '__main__':
+    import numpy as np
+    from scipy.stats import norm, uniform, bernoulli
+    from scipy.special import expit
+    import pandas as pd
+
+    RNG = np.random.default_rng(seed = 0)
+
+    var2 = 0.5
+    marginal_x1_pdf = uniform(-8, 8).pdf # norm(0, 4).pdf  
+
+    def cond_mean_x2(x1):
+        return x1+2*np.sin(10*x1/(2*np.pi))
+
+    # generate data
+    def rvs(n, irr=100):
+        x1 = norm(0, 1).rvs(size=n)
+        x2 = norm(0, 1).rvs(size=n)
+        x3 = norm(0, 1).rvs(size=n)
+
+        y = bernoulli.rvs(expit(x1+x2+x3), random_state=RNG)
+        
+        irr_lst = [uniform(-2, 2).rvs(n) for _ in range(irr)]
+        for each in [x1, x2, x3]:
+            irr_lst.append(each)
+        irr_columns = ['X' + str(i) for i in range(4, irr+4)]
+        rr_columns = ['X1', 'X2', 'X3']
+        cols = irr_columns + rr_columns
+        df = pd.DataFrame(np.column_stack(irr_lst))
+        df.columns = cols
+        return df, y  
+
+    predictor, target = rvs(10,50)
+    
+    best_result, best_tree = honestTree(Rep=10).fit(predictor, target)

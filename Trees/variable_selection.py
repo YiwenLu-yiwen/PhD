@@ -74,21 +74,18 @@ def rvs(n, irr=100):
     df.columns = cols
     return df, y
 
-def single_sel(parameters, tree, tree_rep=10):
+def single_sel(parameters, tree):
     # find best rp_tree , pairs, subset, targes 
     """data is the sublist of predictors in X, y_dic is the values of Y
     parameters: combination of tuples for example (data  y).
     """
     data, y = parameters
     best_aic = np.infty
-    for _ in range(tree_rep):
-        all_result, model = tree.fit(data, y)
-        current_aic, final_fmi, k, all_rules = all_result
-        if best_aic > current_aic:
-            best_aic = current_aic
+    all_result, model = tree.fit(data, y)
+    best_aic, final_fmi, k, all_rules = all_result
     return best_aic 
 
-def variable_sel(predictors, y, pool, tree, tree_rep=1, best_subset=[]):
+def variable_sel(predictors, y, pool, tree, best_subset=[]):
     """This is total algorithm for the variable selection
     """
     remain_columns = [each for each in predictors.columns if each not in best_subset]
@@ -104,7 +101,7 @@ def variable_sel(predictors, y, pool, tree, tree_rep=1, best_subset=[]):
             tree_lst.append(deepcopy(tree))
             potential_lst.append(column)
         
-        aic_lst = pool.starmap(single_sel, zip(data_lst, tree_lst, repeat(tree_rep)))
+        aic_lst = pool.starmap(single_sel, zip(data_lst, tree_lst))
 
         # initial value
         current_best_aic = aic_lst[0]
@@ -181,7 +178,7 @@ if __name__ == '__main__':
 
             for model_name in model_dic:
                 tree = deepcopy(model_dic[model_name])
-                best_subset, best_aic = variable_sel(predictors, target, pool, tree, tree_rep=5, best_subset=[])
+                best_subset, best_aic = variable_sel(predictors, target, pool, tree, best_subset=[])
                 accuracy, recall, precision, f1 = evaluation_result(best_subset, pos_columns, neg_columns)
                 variable_lst.append(best_subset)
                 aic_list.append(best_aic)

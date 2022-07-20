@@ -17,35 +17,23 @@ def equal_width_1d(data, k, a=None, b=None):
     array([1, 3, 2])
     >>> equal_width(np.array([[2.0, 0], [3.5, 0.5], [2.7, 5]]), 3)
     array([[0, 0], [2, 0], [1, 2]])
-<<<<<<< HEAD
-<<<<<<< HEAD
     >>> equal_width(np.array([[0, 0], [0, 0], [0, 0]]), 3)
     array([[0, 0], [0, 0], [0, 0]])
-=======
->>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
-=======
->>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
     """
     res = np.zeros_like(data, dtype='int')
     a = data.min() if a is None else a
     b = data.max() if b is None else b
     h = (b - a) / k
     for i in range(len(data)):
-<<<<<<< HEAD
-<<<<<<< HEAD
         if h == 0:
             res[i] == 0
         else:
             res[i] = int((data[i] - a) // h) - (data[i] % h == 0 and data[i] != a)
             res[i] = k - 1 if res[i] >= k - 1 else res[i]
-=======
         res[i] = int((data[i] - a) // h) - (data[i] % h == 0 and data[i] != a)
         res[i] = k - 1 if res[i] >= k - 1 else res[i]
->>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
-=======
         res[i] = int((data[i] - a) // h) - (data[i] % h == 0 and data[i] != a)
         res[i] = k - 1 if res[i] >= k - 1 else res[i]
->>>>>>> f5a813a77e811307eafb2915efd86e9b6752a9df
     return res
 
 

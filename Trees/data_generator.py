@@ -79,6 +79,11 @@ def rvs2d(n, irr, types='independent_circle', factor=0.5, noise=0.05):
         x1 = norm(0, 1).rvs(size=n)
         x2 = norm(0, 1).rvs(size=n)
         y = bernoulli.rvs(expit(x1-x2), random_state=RNG)
+    elif types == 'interaction':
+        x1 = norm(0, 1).rvs(size=n)
+        x2 = norm(0, 1).rvs(size=n)
+        x3 = x1 * x2
+        y = bernoulli.rvs(expit(x1-x2+x3), random_state=RNG)
     
     irr_lst = [norm(0, 1).rvs(size=n) for _ in range(irr)]
     for each in [x1, x2]:

@@ -82,7 +82,7 @@ def evaluation_result(selected_variables, pos_variables, neg_variables):
 
 class evaluationExperiment:
 
-    def __init__(self, size, model_dic, dataGenerator=dataGenerator2d, rr=2, irr=48, verbose=True, data_rep=5) -> None:
+    def __init__(self, size, model_dic, dataGenerator=dataGenerator2d, rr=2, irr=48, verbose=True, data_rep=5, types='mixed_circle') -> None:
         self.size = size
         self.model_dic = model_dic
         self.verbose = verbose
@@ -91,6 +91,7 @@ class evaluationExperiment:
         self.irr = irr
         self.rr = rr
         self.result = dict(zip(size, [{} for _ in size]))
+        self.types = types
         self.dataframe = {}
 
     def run(self):
@@ -100,7 +101,7 @@ class evaluationExperiment:
             if self.verbose:
                 start = timeit.default_timer()
             for _ in range(self.data_rep):
-                predictors, target = self.dataGenerator(n=size, irr=self.irr).fit()  # for train, only relevant
+                predictors, target = self.dataGenerator(n=size, irr=self.irr, types=self.types).fit()  # for train, only relevant
                 total_columns = list(predictors.columns)
                 pos_columns = ['X' + str(i) for i in range(self.rr)]
                 neg_columns = [each for each in total_columns if each not in pos_columns]

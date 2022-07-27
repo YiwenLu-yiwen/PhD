@@ -3,9 +3,12 @@ import numpy as np
 import random
 
 from sklearn.model_selection import train_test_split, KFold
+from functions import fGain
 from estimators import naive_estimate
 from copy import deepcopy
 from sklearn.utils import check_X_y
+
+from permutation import permutation
 
 # Split a dataset based on an attribute and an attribute value
 def test_split(index, value, dataset):
@@ -36,8 +39,7 @@ def log_loss(groups, classes):
                     score += -p * math.log2(p) * size # for likelihood
             # weight the group score by its relative size
             likelihood += score * (size / n_instances)
-        return likelihood
-
+        return likelihood # H(Y|X)
 
 # Select the best split point for a dataset
 def get_split(dataset):
@@ -57,13 +59,16 @@ class functionTree:
     With number of split increases, AIC increases and loglikelihood decreases. May not work in the variable selection.
     """
     
-    def __init__(self, option='kd', AIC=True, estimator='naive_estimate', Rep=1):
-        """Choose to use different options and different AIC/BIC criteria
+    def __init__(self, option='kd', AIC='AIC', estimator=naive_estimate, Rep=1, reliable_MI=False):
+        """Choose to use different options and different AIC/BIC/MI criteria
+        :params: 
+            options:
+            AIC: 'AIC', 'BIC', 'MI'
         """
+        self.estimator=estimator
         self.probs = None
         self.all_rules = [[]]
         self.dict = {}
-        self.aic = np.infty
         self.AIC = AIC
         self.fmi = 0
         self.option = option
@@ -74,6 +79,7 @@ class functionTree:
         self.length = None
         self.num_leaves = None
         self.rep = Rep # control repeatition
+        self.reliable_MI = reliable_MI
 
     def __str__(self):
         return str(self.val)
@@ -93,7 +99,7 @@ class functionTree:
         """
         return np.dot(x, y) / np.linalg.norm(y)
     
-    def nodeLoglikelihood(self, leaf_lst: list, n: int, AIC: bool, y_dic: dict) -> tuple:
+    def nodeLoglikelihood(self, leaf_lst: list, n: int, AIC: str, y_dic: dict) -> tuple:
         """Get each node entropy/loglikelihood using an MI_estimator
         Input:
             leaf_lst: a built RP_tree last layer leaves list
@@ -114,23 +120,31 @@ class functionTree:
                 temp.append(y_dic[tuple(code)])
             temp_all.append([leaf, temp])
             y_leaves.append(temp)
-        leafLikelihood = np.array([naive_estimate(np.array(code))*len(code) for code in y_leaves]) # each H(Y|X=x) * c(x, y)
+        leafLikelihood = np.array([self.estimator(np.array(code))*len(code) for code in y_leaves]) # each H(Y|X=x) * c(x, y)
         probs = [prob(each) for each in y_leaves]
+        # for permutation, we need discrete variables (leaves), discrete variables(targets)
+        # For example, if A,B,C in one leaf and all target is 1, we set leave1,1, leave1, 1, leave1, 1
         # p(y|x')H(y|x=x')
         weight = np.array([len(code[0]) for code in leaf_lst])
         weight_sum = sum(weight)
-        k = len(weight) 
-        prob = weight/weight_sum
+        weights = weight/weight_sum
+        k = len(weight)  # num of leaves
         # H(Y|X)
-        tree_loglikelihood = sum(leafLikelihood)
-        # fraction of MI
-        fmi = 1 - tree_loglikelihood/self.y_entropy if self.y_entropy else 0 
+        tree_loglikelihood = sum(leafLikelihood * weights)
         # AICc values
-        if self.AIC:
-            aic = 2* tree_loglikelihood + 2*n*k/(n-k-1)
-        else:
-            aic = 2* tree_loglikelihood + k*math.log(n) #+ 2*n*k/(n-k-1)  # apply bic here # if n !=k+1 and n!=k else 2*tree_loglikelihood + 2*k*n # 2* k/2 * math.log2(n) 
-        return aic, fmi, tree_loglikelihood, k, probs
+        if self.AIC == 'AIC':
+            score = - (2* tree_loglikelihood + 2*n*k/(n-k-1))
+        elif self.AIC == 'BIC':
+            score = -(2* tree_loglikelihood + k*math.log(n))
+        elif self.AIC == 'MI':
+            permutation_result = 0
+            discrete_leaves = np.array([i for i in range(len(y_leaves)) for _ in y_leaves[i]])
+            discrete_values = np.array([each for code in y_leaves for each in code])
+            if self.reliable_MI:
+                permutation_result = permutation(discrete_leaves, discrete_values).summary()
+            fmi = fGain(discrete_leaves, discrete_values) - permutation_result/self.y_entropy if self.y_entropy else 0
+            score = fmi
+        return score, tree_loglikelihood, k, probs
 
     
     def ChooseRule_kd(self, data, y=None):
@@ -138,7 +152,6 @@ class functionTree:
         """
         try:
             sel = random.randrange(0,len(data[0]))
-            # print(len(data[0]))
             samp = [_[sel] for _ in data]
             rule = np.median(samp)
             res_left = [each for each in data if each[sel] <= rule]
@@ -178,7 +191,6 @@ class functionTree:
         res_left =  [each[:-1] for each in dic['groups'][0]]
         res_right =  [each[:-1] for each in dic['groups'][1]]
         return res_left, res_right, (sel,rule)
-        
     
     def fit(self: object, predictor:list, target:list):
         if self.rep > 1:
@@ -189,7 +201,7 @@ class functionTree:
         best_tree = None
         for i in range(rep):
             current_result, current_tree = self.singlefit(predictor, target)
-            if best_tree == None or best_result[0] > current_result[0]:
+            if best_tree == None or best_result[0] < current_result[0]:
                 best_result, best_tree = current_result, current_tree
         return best_result, best_tree
         
@@ -205,20 +217,18 @@ class functionTree:
         self.all_rules = [[]]
         predictor, target = check_X_y(predictor, target)
         self.val = [tuple([tuple(each) for each in predictor.tolist()])]
-        self.y_entropy = naive_estimate(np.array(target))
+        self.y_entropy = self.estimator(np.array(target))
         self.target = target
         self.y_dic = dict(zip(self.val[0], target))
         self.length = len(target)
         self.num_leaves = int(math.log2(len(target)))
 
         length = self.length
-        stop, non_cnts, pre_aic=False, 0, None
+        stop, non_cnts, best_score=False, 0, None
         cnt = 0
         split_lst = []
         rules_lst = []
         while not stop:
-            # print(len(self.all_rules), len(self.val), cnt, )
-            # print(len(self.val[0]), len(self.val[0][0]))
             copy_data = deepcopy(self.val)
             split_lst = []
             copy_rules = deepcopy(self.all_rules)
@@ -253,11 +263,11 @@ class functionTree:
                 temp_rules = rules_lst + copy_rules
                 temp_lst = split_lst + copy_data # if copy_data else split_lst
 
-                aic, fmi, logs, k, probs = self.nodeLoglikelihood(temp_lst, length, self.AIC, self.y_dic)
-                if pre_aic == None or aic < pre_aic:
+                score, tree_loglikelihood, k, probs = self.nodeLoglikelihood(temp_lst, length, self.AIC, self.y_dic)
+                if best_score == None or score > best_score:
                     non_cnts = 0
-                    result = [aic, fmi, k, temp_rules, probs]
-                    pre_aic=aic
+                    result = [score, k, temp_rules, probs]
+                    best_score=score
                 else:
                     non_cnts += 1
                 if non_cnts > 50: #apply early stopping, if 50 more leaves can't improve the tree, we don't generate anymore
@@ -266,7 +276,6 @@ class functionTree:
 
             self.all_rules = deepcopy(temp_rules)
             self.val = deepcopy(temp_lst)
-            # print(len(self.all_rules), len(self.val), stop, 'end')
 
             if length < 100:
                 if len(self.val) >= length/2-1: #>= 20 or len(self.val) >= length/2:  #== length:
@@ -345,27 +354,27 @@ class functionTree:
 
 class rpTree(functionTree):
 
-    def __init__(self, option='rp', AIC=True, estimator='naive_estimate', Rep=1):
+    def __init__(self, option='rp', AIC='AIC', estimator=naive_estimate, Rep=1, reliable_MI=False):
         super().__init__(option, AIC, estimator, Rep)
 
 
 
 class kdTree(functionTree):
     
-    def __init__(self, option='kd', AIC=True, estimator='naive_estimate', Rep=1):
+    def __init__(self, option='kd', AIC='AIC', estimator=naive_estimate, Rep=1, reliable_MI=False):
         super().__init__(option, AIC, estimator, Rep)
 
 
 
 class classifcationTree(functionTree):
 
-    def __init__(self, option='classification', AIC=True, estimator='naive_estimate', Rep=1):
+    def __init__(self, option='classification', AIC='AIC', estimator=naive_estimate, Rep=1, reliable_MI=False):
         super().__init__(option, AIC, estimator, Rep)
 
 
 class honestTree(functionTree):
 
-    def __init__(self, option='classification', AIC=True, estimator='naive_estimate', Rep=1):
+    def __init__(self, option='classification', AIC='AIC', estimator=naive_estimate, Rep=1, reliable_MI=False):
         super().__init__(option, AIC, estimator, Rep)
 
     def fit(self, predictor: list, target: list):
@@ -381,38 +390,42 @@ class honestTree(functionTree):
         aic, fmi, tree_loglikelihood, k, probs = tree.nodeLoglikelihood(partition_lst, n, AIC=self.AIC, y_dic=y_dic)
         return [aic, fmi, k, None], tree
 
-if __name__ == '__main__':
-    import numpy as np
-    from scipy.stats import norm, uniform, bernoulli
-    from scipy.special import expit
-    import pandas as pd
+class miStagewise(functionTree):
+    def __init__(self, option='classification', AIC='MI', estimator=naive_estimate, Rep=1, reliable_MI=True):
+        super().__init__(option, AIC, estimator, Rep, reliable_MI)
 
-    RNG = np.random.default_rng(seed = 0)
+# if __name__ == '__main__':
+#     from scipy.stats import norm, uniform, bernoulli
+#     from scipy.special import expit
+#     import pandas as pd
 
-    var2 = 0.5
-    marginal_x1_pdf = uniform(-8, 8).pdf # norm(0, 4).pdf  
+#     RNG = np.random.default_rng(seed = 0)
 
-    def cond_mean_x2(x1):
-        return x1+2*np.sin(10*x1/(2*np.pi))
+#     var2 = 0.5
+#     marginal_x1_pdf = uniform(-8, 8).pdf # norm(0, 4).pdf  
 
-    # generate data
-    def rvs(n, irr=100):
-        x1 = norm(0, 1).rvs(size=n)
-        x2 = norm(0, 1).rvs(size=n)
-        x3 = norm(0, 1).rvs(size=n)
+#     def cond_mean_x2(x1):
+#         return x1+2*np.sin(10*x1/(2*np.pi))
 
-        y = bernoulli.rvs(expit(x1+x2+x3), random_state=RNG)
+#     # generate data
+#     def rvs(n, irr=100):
+#         x1 = norm(0, 1).rvs(size=n)
+#         x2 = norm(0, 1).rvs(size=n)
+#         x3 = norm(0, 1).rvs(size=n)
+
+#         y = bernoulli.rvs(expit(x1+x2+x3), random_state=RNG)
         
-        irr_lst = [uniform(-2, 2).rvs(n) for _ in range(irr)]
-        for each in [x1, x2, x3]:
-            irr_lst.append(each)
-        irr_columns = ['X' + str(i) for i in range(4, irr+4)]
-        rr_columns = ['X1', 'X2', 'X3']
-        cols = irr_columns + rr_columns
-        df = pd.DataFrame(np.column_stack(irr_lst))
-        df.columns = cols
-        return df, y  
+#         irr_lst = [uniform(-2, 2).rvs(n) for _ in range(irr)]
+#         for each in [x1, x2, x3]:
+#             irr_lst.append(each)
+#         irr_columns = ['X' + str(i) for i in range(4, irr+4)]
+#         rr_columns = ['X1', 'X2', 'X3']
+#         cols = irr_columns + rr_columns
+#         df = pd.DataFrame(np.column_stack(irr_lst))
+#         df.columns = cols
+#         return df, y  
 
-    predictor, target = rvs(10,50)
+#     predictor, target = rvs(100,50)
     
-    best_result, best_tree = honestTree(Rep=10).fit(predictor, target)
+#     best_result, best_tree = miStagewise(Rep=1).fit(predictor, target)#classifcationTree(AIC='MI', reliable_MI=True, Rep=1).fit(predictor, target)
+#     print(best_result)

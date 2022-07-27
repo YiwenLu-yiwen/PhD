@@ -270,7 +270,7 @@ class functionTree:
                     best_score=score
                 else:
                     non_cnts += 1
-                if non_cnts > 50: #apply early stopping, if 50 more leaves can't improve the tree, we don't generate anymore
+                if non_cnts > length/2: #apply early stopping, if leaves more than size/2, we don't generate anymore
                     stop=True
                     break
 
@@ -387,8 +387,8 @@ class honestTree(functionTree):
         X_test = tuple([tuple(each) for each in X_test.tolist()])
         y_dic = dict(zip(X_test, y_test))
         partition_lst = [each for each in partition_lst if each]
-        aic, fmi, tree_loglikelihood, k, probs = tree.nodeLoglikelihood(partition_lst, n, AIC=self.AIC, y_dic=y_dic)
-        return [aic, fmi, k, None], tree
+        score, tree_loglikelihood, k, probs = tree.nodeLoglikelihood(partition_lst, n, AIC=self.AIC, y_dic=y_dic)
+        return [score, k, None], tree
 
 class miStagewise(functionTree):
     def __init__(self, option='classification', AIC='MI', estimator=naive_estimate, Rep=1, reliable_MI=True):

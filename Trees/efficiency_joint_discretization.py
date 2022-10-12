@@ -50,14 +50,23 @@ def selectPoint(sorted_subsetData_dic, dim, value_x):
     
     # check same dimension
     index = sorted_subsetData_dic['index']
-    if index >= len(sorted_subsetData_dic['values'][:, dim]) :
-        return sorted_subsetData_dic, None
+    change_point_list = []
+    if index == len(sorted_subsetData_dic['values'][:, dim]) :
+        return sorted_subsetData_dic, []
     
-    if value_x == sorted_subsetData_dic['values'][:, dim][index]:
+    if value_x != sorted_subsetData_dic['values'][:, dim][index]:
+        return sorted_subsetData_dic, []
+
+    # check if the same value
+    while value_x == sorted_subsetData_dic['values'][:, dim][index]:
         value_y = sorted_subsetData_dic['values'][index, :][-1]
-        return countPoint(sorted_subsetData_dic, value_y)
-    else:
-        return sorted_subsetData_dic, None
+        sorted_subsetData_dic, change_point = countPoint(sorted_subsetData_dic, value_y)
+        index = sorted_subsetData_dic['index']
+        change_point_list.append(change_point)
+        # if match the maximum index, means data has already ends
+        if index == len(sorted_subsetData_dic['values'][:, dim]):
+            break
+    return sorted_subsetData_dic, change_point_list
     
 def bin_entropy(dic, sample_size):
     """Get entropy of each bin
@@ -181,13 +190,13 @@ def sampleXY(subsetData_list):
             y_list += suby_list
     return np.array(x_list), np.array(y_list)
 
-def singleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi):
+def singleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut):
     """For multi-processing use
     Single dimension comparison
     """
     sorted_data = data[data[:, dim].argsort()][:,dim] # only sorted related dimension, save space complexity  
     x_discretization, y_values = sampleXY(best_subsetData_list) # create x discretization list
-    best_candidate_subsetData_list, best_dim = [], None
+    best_candidate_subsetData_list, best_dim, best_value = [], None, None
     # sorted all subset data, complexity O(nlogn)
     for i in range(len(best_subsetData_list)):
         best_subsetData_list[i] = sortValue(best_subsetData_list[i], dim)
@@ -197,24 +206,28 @@ def singleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi)
         value_x = sorted_data[j]
         
         for i in range(len(candidate_subsetData_list)): # O(n), select Point complexity is O(1)
-            candidate_subsetData_list[i], change_value = selectPoint(candidate_subsetData_list[i], dim, value_x)
+            candidate_subsetData_list[i], change_value_list = selectPoint(candidate_subsetData_list[i], dim, value_x)
             
             # add changed index, change_value = (index, sign)
             # modify discretization list
-            if change_value:
+            for change_value in change_value_list:
                 x_discretization[change_value[0]] = change_value[1]
-                
-        candidate_fmi = 1 - conditionEntropy(candidate_subsetData_list, sample_size)/h_y - permutation(x_discretization, y_values).summary()
+        
+        candidate_fmi = 1 - conditionEntropy(candidate_subsetData_list, sample_size)/h_y 
+        if permut:
+            candidate_fmi -= permutation(x_discretization, y_values).summary()
         # comparison
         if candidate_fmi > best_fmi:
             best_candidate_subsetData_list = deepcopy(candidate_subsetData_list)
             best_fmi = candidate_fmi
             best_dim = dim
-    return best_candidate_subsetData_list, best_fmi, best_dim
+            best_value = value_x
+    return best_candidate_subsetData_list, best_fmi, best_dim, best_value
     
-def jointDiscretization(data):
+def jointDiscretization(data, permut=True):
     """Main algorithm
     data: data matrix
+    permut: True if use permutation
     """
     # initialization
     pool = Pool()
@@ -224,7 +237,7 @@ def jointDiscretization(data):
     best_subsetData_list = reformat_all([initial_subsetData_dic], all_classes)
     sample_size = len(data)
     stop = False
-    dim_list, best_fmi, best_dim = [], -np.infty, None
+    dim_list, best_value_list, best_fmi, best_dim = [], [], -np.infty, None
     h_y = naive_estimate(data[:, -1]) # naive estimate H(Y)
     while not stop:
         # initialization
@@ -236,7 +249,8 @@ def jointDiscretization(data):
         sample_size_list = [sample_size for _ in range(rep)]
         h_y_list = [h_y for _ in range(rep)]
         best_fmi_list = [best_fmi for _ in range(rep)]
-        result = pool.starmap(singleDimension, zip(data_list, dims_list, best_subsetData_list_list, sample_size_list, h_y_list, best_fmi_list))
+        permut_list = [permut for _ in range(rep)]
+        result = pool.starmap(singleDimension, zip(data_list, dims_list, best_subsetData_list_list, sample_size_list, h_y_list, best_fmi_list, permut_list))
 
         # if not change, we stop the loop
         for each in result:
@@ -244,11 +258,12 @@ def jointDiscretization(data):
                 best_candidate_subsetData_list = each[0]
                 best_fmi = each[1]
                 best_dim = each[2]
-
+                best_value = each[3]
         if best_candidate_subsetData_list:
             best_subsetData_list = reformat_all(best_candidate_subsetData_list, all_classes)
             dim_list.append(best_dim)
+            best_value_list.append(best_value)
         else:
             stop=True
     pool.close()
-    return best_subsetData_list, best_fmi, dim_list
+    return best_subsetData_list, best_fmi, dim_list, best_value_list

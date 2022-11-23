@@ -238,7 +238,7 @@ def jointDiscretization(data, permut=True):
     best_subsetData_list = reformat_all([initial_subsetData_dic], all_classes)
     sample_size = len(data)
     stop = False
-    dim_list, best_value_list, best_fmi, best_dim = [], [], -np.infty, None
+    dim_list, best_value_list, best_fmi, best_dim, step_fmi_list = [], [], -np.infty, None, []
     h_y = naive_estimate(data[:, -1]) # naive estimate H(Y)
     while not stop:
         # initialization
@@ -264,13 +264,14 @@ def jointDiscretization(data, permut=True):
             best_subsetData_list = reformat_all(best_candidate_subsetData_list, all_classes)
             dim_list.append(best_dim)
             best_value_list.append(best_value)
+            step_fmi_list.append(best_fmi)
         else:
             stop=True
     pool.close()
-    return best_subsetData_list, best_fmi, dim_list, best_value_list
+    return best_subsetData_list, step_fmi_list, dim_list, best_value_list
 
 def optSingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut):
-    stop, dim_list, value_list=False, [], []
+    stop, dim_list, value_list, best_fmi_list =False, [], [], []
     all_classes = np.unique(data[:, -1])
     while not stop:
         single_best_candidate_subsetData_list, single_best_fmi, single_best_dim, single_best_value = SingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut)
@@ -282,58 +283,11 @@ def optSingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_f
             best_subsetData_list = reformat_all(best_subsetData_list, all_classes)
             dim_list.append(dim)
             value_list.append(single_best_value)
+            best_fmi_list.append(best_fmi)
 
-    return best_subsetData_list, best_fmi, value_list, dim_list
-# def stageSingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut):
-#     """This algorithm is for stageWise
-#     """
-#     sorted_data = data[data[:, dim].argsort()][:,dim] # only sorted related dimension, save space complexity  
-#     x_discretization, y_values = sampleXY(best_subsetData_list) # create x discretization list
-#     best_candidate_subsetData_list, best_value = [], None
-#     current_best_fmi = best_fmi
+    return best_subsetData_list, best_fmi, value_list, dim_list, best_fmi_list
 
-#     # sorted all subset data, complexity O(nlogn)
-#     for i in range(len(best_subsetData_list)):
-#         best_subsetData_list[i] = sortValue(best_subsetData_list[i], dim)
-    
-#     candidate_subsetData_list = deepcopy(best_subsetData_list)
-#     stop, best_value_list = False, []
-#     while not stop:
-#         for j in range(len(sorted_data)):
-#             value_x = sorted_data[j]
-
-#             for i in range(len(candidate_subsetData_list)): # O(n), select Point complexity is O(1)
-#                 candidate_subsetData_list[i], change_value_list = selectPoint(candidate_subsetData_list[i], dim, value_x)
-                
-#                 # add changed index, change_value = (index, sign)
-#                 for change_value in change_value_list:
-#                     x_discretization[change_value[0]] = change_value[1]
-            
-#             candidate_fmi = 1 - conditionEntropy(candidate_subsetData_list, sample_size)/h_y 
-#             if permut:
-#                 candidate_fmi -= permutation(x_discretization, y_values).summary()/h_y # expected_mutual_information_permutation_model(x_discretization, y_values, num_threads=1)/h_y # use panos library
-#             # comparison
-#             if candidate_fmi > current_best_fmi:
-#                 best_candidate_subsetData_list = deepcopy(candidate_subsetData_list)
-#                 current_best_fmi = candidate_fmi
-#                 best_value = value_x
-
-#         if best_value in best_value_list:
-#             stop = True
-#         else:
-#             best_value_list.append(best_value)
-#             candidate_subsetData_list = deepcopy(best_candidate_subsetData_list)
-#             x_discretization, y_values = sampleXY(candidate_subsetData_list)
-#             for i in range(len(candidate_subsetData_list)):
-#                 candidate_subsetData_list[i] = sortValue(candidate_subsetData_list[i], dim)
-
-#     if best_fmi >= current_best_fmi:
-#         current_best_fmi = None
-    
-#     return best_candidate_subsetData_list, current_best_fmi, best_value_list, [dim for _ in best_value_list]
-
-
-def stageWiseDiscretization(data, permut=True):
+def stageWiseDiscretization(data, permut=True, thehold=0.01):
     """Main algorithm
     data: data matrix
     permut: True if use permutation
@@ -347,7 +301,7 @@ def stageWiseDiscretization(data, permut=True):
     sample_size = len(data)
     stop = False
     copy_data = deepcopy(data)
-    dim_list, best_values_list, best_fmi, best_dim, best_dim_list = [_ for _ in range(len(copy_data[0])-1)], [], -np.infty, None, []
+    dim_list, best_values_list, best_fmi, best_dim, best_dim_list, step_fmi_list = [_ for _ in range(len(copy_data[0])-1)], [], -np.infty, None, [], []
     h_y = naive_estimate(data[:, -1]) # naive estimate H(Y)
     while not stop:
         # initialization
@@ -364,17 +318,19 @@ def stageWiseDiscretization(data, permut=True):
 
         # if not change, we stop the loop
         for each in result:
-            if each[1] and each[1] > best_fmi:
+            if each[1] and each[1] - best_fmi > thehold:
                 best_candidate_subsetData_list = each[0]
                 best_fmi = each[1]
                 best_value_list = each[2]
                 best_dim = each[3]
+                best_fmi_sublist = each[4]
         if best_candidate_subsetData_list:
             best_subsetData_list = reformat_all(best_candidate_subsetData_list, all_classes)
             dim_list.remove(best_dim[0])
             best_dim_list += best_dim
             best_values_list += best_value_list
+            step_fmi_list += best_fmi_sublist
         else:
             stop=True
     pool.close()
-    return best_subsetData_list, best_fmi, best_dim_list, best_values_list
+    return best_subsetData_list, step_fmi_list, best_dim_list, best_values_list

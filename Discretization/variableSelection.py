@@ -82,7 +82,7 @@ def evaluation_result(selected_variables, pos_variables, neg_variables):
 
 class evaluationExperiment:
 
-    def __init__(self, size, model_dic, dataGenerator=dataGenerator2d, rr=2, irr=48, verbose=True, data_rep=5, types='mixed_circle') -> None:
+    def __init__(self, size, model_dic, dataGenerator=dataGenerator2d, early_stopping=None, permut=True, rr=2, irr=48, verbose=True, data_rep=5, types='mixed_circle') -> None:
         self.size = size
         self.model_dic = model_dic
         self.verbose = verbose
@@ -93,6 +93,8 @@ class evaluationExperiment:
         self.result = dict(zip(size, [{} for _ in size]))
         self.types = types
         self.dataframe = {}
+        self.early_stopping = early_stopping
+        self.permut = permut
 
     def run(self):
         pool = Pool()
@@ -101,7 +103,7 @@ class evaluationExperiment:
             if self.verbose:
                 start = timeit.default_timer()
             for _ in range(self.data_rep):
-                predictors, target = self.dataGenerator(n=size, irr=self.irr, types=self.types).fit()  # for train, only relevant
+                predictors, target = self.dataGenerator(n=size, irr=self.irr, types=self.types).fit()  # for train
                 total_columns = list(predictors.columns)
                 pos_columns = ['X' + str(i) for i in range(self.rr)]
                 neg_columns = [each for each in total_columns if each not in pos_columns]
@@ -113,7 +115,7 @@ class evaluationExperiment:
                     elif model_name == 'joint' or model_name == 'stage':
                         data = deepcopy(predictors)
                         data['Y'] = target
-                        best_subsetData_list, best_aic, dim_list, best_value_list = tree(data, permut=True)
+                        best_subsetData_list, best_aic, dim_list, best_value_list = tree(data, permut=self.permut, early_stopping=self.early_stopping)
                         best_subset = np.unique(['X' + str(each) for each in dim_list])
                     else:
                         best_subset, best_aic = variable_sel(predictors, target, pool, tree, best_subset=[])
@@ -141,10 +143,5 @@ class evaluationExperiment:
     def summary(self):
         for each in self.result:
             df = pd.DataFrame(self.result[each]).T
-            df['scores'] = df['scores'].apply(lambda x: np.mean(x))
-            df['accuracy'] = df['accuracy'].apply(lambda x: np.mean(x))
-            df['precision'] = df['precision'].apply(lambda x: np.mean(x))
-            df['recall'] = df['recall'].apply(lambda x: np.mean(x))
-            df['f1'] = df['f1'].apply(lambda x: np.mean(x))
             self.dataframe[each] = df
         return self.dataframe

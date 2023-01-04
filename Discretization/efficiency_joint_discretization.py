@@ -5,7 +5,7 @@ import numpy as np
 from estimators import naive_estimate
 from multiprocess import Pool
 from explora.information_theory.permutation_model import expected_mutual_information_permutation_model
-
+from early_stopping import match_stopping
 
 def sortValue(subsetData_dic, dim):
     """ sort value in particular dim
@@ -191,18 +191,33 @@ def sampleXY(subsetData_list):
             y_list += suby_list
     return np.array(x_list), np.array(y_list)
 
-def SingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut):
+def SingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_mi, permut, early_stopping, num_cutpoints=None, num_selected=None, delta=0.1):
     """For multi-processing use
     Find single dimension comparison, one point at a time.
+    Applied chi-square
+    data: dataset combined with X adn Y
+    dim: specific dimension
+    best_subsetData_list: current formated data partipations
+    sample_size: total sample sizes
+    h_y: H(Y)
+    best_mi: current best MI 
+    permut: True/False use permutation model
+    early_stopping: lazy, chi_square
+    num_cutpoints: total number of cutpoints
+    num_selected: number of selected cutpoints
     """
+    size = data.shape[0]
     sorted_data = data[data[:, dim].argsort()][:,dim] # only sorted related dimension, save space complexity  
     x_discretization, y_values = sampleXY(best_subsetData_list) # create x discretization list
-    best_candidate_subsetData_list, best_dim, best_value = [], None, None
+    best_candidate_subsetData_list, best_dim, best_value, degree_of_freedom, new_delta = [], None, None, 0, 0 # set default values
+    all_classes = np.unique(data[:, -1])
     # sorted all subset data, complexity O(nlogn)
     for i in range(len(best_subsetData_list)):
         best_subsetData_list[i] = sortValue(best_subsetData_list[i], dim)
     
     candidate_subsetData_list = deepcopy(best_subsetData_list)
+    if early_stopping in ['chi_square', 'chi_square_adjust']:
+        num_pre_bins = len(candidate_subsetData_list)
     for j in range(len(sorted_data)):
         value_x = sorted_data[j]
         
@@ -214,18 +229,31 @@ def SingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi,
             for change_value in change_value_list:
                 x_discretization[change_value[0]] = change_value[1]
         
-        candidate_fmi = 1 - conditionEntropy(candidate_subsetData_list, sample_size)/h_y 
+        candidate_mi = h_y - conditionEntropy(candidate_subsetData_list, sample_size)
         if permut:
-            candidate_fmi -= expected_mutual_information_permutation_model(x_discretization, y_values, num_threads=1)/h_y # use panos library #permutation(x_discretization, y_values).summary()/h_y #
-        # comparison
-        if candidate_fmi > best_fmi:
+            candidate_mi -= expected_mutual_information_permutation_model(x_discretization, y_values, num_threads=1) # use panos library #permutation(x_discretization, y_values).summary()/h_y #
+        
+        if early_stopping == 'chi_square_adjust':
+            num_after_bins = len(reformat_all(deepcopy(candidate_subsetData_list), all_classes))
+            degree_of_freedom = num_after_bins - num_pre_bins
+            # change weight delta
+            new_delta = delta/(num_cutpoints-num_selected-1)
+        elif early_stopping == 'chi_square':
+            num_after_bins = len(reformat_all(deepcopy(candidate_subsetData_list), all_classes))
+            degree_of_freedom = num_after_bins - num_pre_bins
+            # change weight delta
+            new_delta = delta
+
+        # mutual information is normalized loglikelihood
+        if match_stopping(current_value=candidate_mi, previous_value=best_mi, size=size, degree_of_freedom=degree_of_freedom, delta=new_delta, typ=early_stopping):
             best_candidate_subsetData_list = deepcopy(candidate_subsetData_list)
-            best_fmi = candidate_fmi
+            best_mi = candidate_mi
             best_dim = dim
             best_value = value_x
-    return best_candidate_subsetData_list, best_fmi, best_dim, best_value
+            
+    return best_candidate_subsetData_list, best_mi, best_dim, best_value
     
-def jointDiscretization(data, permut=True):
+def jointDiscretization(data, permut=True, delta=0.1, early_stopping=None, num_cutpoints=None):
     """Main algorithm
     data: data matrix
     permut: True if use permutation
@@ -236,10 +264,12 @@ def jointDiscretization(data, permut=True):
     all_classes = np.unique(data[:, -1])
     initial_subsetData_dic = reformat_data(data, all_classes)
     best_subsetData_list = reformat_all([initial_subsetData_dic], all_classes)
+    # permut = permut if not early_stopping else False
     sample_size = len(data)
     stop = False
-    dim_list, best_value_list, best_fmi, best_dim, step_fmi_list = [], [], -np.infty, None, []
+    dim_list, best_value_list, best_mi, best_dim, step_mi_list, num_selected = [], [], -np.infty, None, [], 0
     h_y = naive_estimate(data[:, -1]) # naive estimate H(Y)
+    num_cutpoints = num_cutpoints if num_cutpoints else data.shape[0]* (data.shape[1]-1)
     while not stop:
         # initialization
         best_dim, best_candidate_subsetData_list = None, []
@@ -249,45 +279,58 @@ def jointDiscretization(data, permut=True):
         best_subsetData_list_list = [deepcopy(best_subsetData_list) for _ in range(loop_times)]
         sample_size_list = [sample_size for _ in range(loop_times)]
         h_y_list = [h_y for _ in range(loop_times)]
-        best_fmi_list = [best_fmi for _ in range(loop_times)]
+        best_mi_list = [best_mi for _ in range(loop_times)]
         permut_list = [permut for _ in range(loop_times)]
-        result = pool.starmap(SingleDimension, zip(data_list, dims_list, best_subsetData_list_list, sample_size_list, h_y_list, best_fmi_list, permut_list))
+        early_stopping_list = [early_stopping for _ in range(loop_times)]
+        num_selected_list = [num_selected for _ in range(loop_times)]
+        delta_list = [delta for _ in range(loop_times)]
+        num_cutpoints_list = [num_cutpoints for _ in range(loop_times)]
+        result = pool.starmap(SingleDimension, zip(data_list, dims_list, best_subsetData_list_list, sample_size_list, 
+                                                    h_y_list, best_mi_list, permut_list, early_stopping_list, 
+                                                    num_cutpoints_list, num_selected_list, delta_list))
 
         # if not change, we stop the loop
         for each in result:
-            if each[1] > best_fmi:
+            if each[1] > best_mi:
                 best_candidate_subsetData_list = each[0]
-                best_fmi = each[1]
+                best_mi = each[1]
                 best_dim = each[2]
                 best_value = each[3]
+
         if best_candidate_subsetData_list:
             best_subsetData_list = reformat_all(best_candidate_subsetData_list, all_classes)
             dim_list.append(best_dim)
             best_value_list.append(best_value)
-            step_fmi_list.append(best_fmi)
+            step_mi_list.append(best_mi)
+            num_selected = num_selected + 1
+            assert num_selected == len(best_value_list) , "Not same number of cutpoints in jointDiscretization"
         else:
             stop=True
     pool.close()
-    return best_subsetData_list, step_fmi_list, dim_list, best_value_list
+    return best_subsetData_list, np.array(step_mi_list)/h_y, dim_list, best_value_list
 
-def optSingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut):
-    stop, dim_list, value_list, best_fmi_list =False, [], [], []
+def optSingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_mi, permut, early_stopping, num_cutpoints=None, num_selected=None, delta=0.1):
+    """This algorithm is for stagewise
+    """
+    stop, dim_list, value_list, best_mi_list, degree_of_freedom =False, [], [], [], 0
     all_classes = np.unique(data[:, -1])
     while not stop:
-        single_best_candidate_subsetData_list, single_best_fmi, single_best_dim, single_best_value = SingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_fmi, permut)
-        if best_fmi >= single_best_fmi:
-            stop=True
-        else:
-            best_fmi = single_best_fmi
+        single_best_candidate_subsetData_list, single_best_mi, single_best_dim, single_best_value = \
+                    SingleDimension(data, dim, best_subsetData_list, sample_size, h_y, best_mi, permut, early_stopping, num_cutpoints, num_selected, delta)
+        
+        if single_best_mi > best_mi:
+            best_mi = single_best_mi
             best_subsetData_list = deepcopy(single_best_candidate_subsetData_list)
             best_subsetData_list = reformat_all(best_subsetData_list, all_classes)
             dim_list.append(dim)
             value_list.append(single_best_value)
-            best_fmi_list.append(best_fmi)
+            best_mi_list.append(best_mi)
+            num_selected += 1
+        else:
+            stop=True
+    return best_subsetData_list, best_mi, value_list, dim_list, best_mi_list, num_selected
 
-    return best_subsetData_list, best_fmi, value_list, dim_list, best_fmi_list
-
-def stageWiseDiscretization(data, permut=True, thehold=0.01):
+def stageWiseDiscretization(data, permut=True, delta=0.1, early_stopping=None, num_cutpoints=None):
     """Main algorithm
     data: data matrix
     permut: True if use permutation
@@ -301,8 +344,10 @@ def stageWiseDiscretization(data, permut=True, thehold=0.01):
     sample_size = len(data)
     stop = False
     copy_data = deepcopy(data)
-    dim_list, best_values_list, best_fmi, best_dim, best_dim_list, step_fmi_list = [_ for _ in range(len(copy_data[0])-1)], [], -np.infty, None, [], []
+    # permut = permut if not early_stopping else False
+    dim_list, best_values_list, best_mi, best_dim, best_dim_list, step_mi_list, num_selected = [_ for _ in range(len(copy_data[0])-1)], [], -np.infty, None, [], [], 0
     h_y = naive_estimate(data[:, -1]) # naive estimate H(Y)
+    num_cutpoints = num_cutpoints if num_cutpoints else data.shape[0]* (data.shape[1]-1)
     while not stop:
         # initialization
         best_dim, best_candidate_subsetData_list = None, []
@@ -312,25 +357,34 @@ def stageWiseDiscretization(data, permut=True, thehold=0.01):
         best_subsetData_list_list = [deepcopy(best_subsetData_list) for _ in range(loop_times)]
         sample_size_list = [sample_size for _ in range(loop_times)]
         h_y_list = [h_y for _ in range(loop_times)]
-        best_fmi_list = [best_fmi for _ in range(loop_times)]
+        best_mi_list = [best_mi for _ in range(loop_times)]
         permut_list = [permut for _ in range(loop_times)]
-        result = pool.starmap(optSingleDimension, zip(data_list, dims_list, best_subsetData_list_list, sample_size_list, h_y_list, best_fmi_list, permut_list))
+        early_stopping_list = [early_stopping for _ in range(loop_times)]
+        num_selected_list = [num_selected for _ in range(loop_times)]
+        delta_list = [delta for _ in range(loop_times)]
+        num_cutpoints_list = [num_cutpoints for _ in range(loop_times)]
+        result = pool.starmap(optSingleDimension, zip(data_list, dims_list, best_subsetData_list_list, sample_size_list, 
+                                                    h_y_list, best_mi_list, permut_list, early_stopping_list, 
+                                                    num_cutpoints_list, num_selected_list, delta_list))
 
         # if not change, we stop the loop
         for each in result:
-            if each[1] and each[1] - best_fmi > thehold:
+            if each[1] > best_mi:
                 best_candidate_subsetData_list = each[0]
-                best_fmi = each[1]
+                best_mi = each[1]
                 best_value_list = each[2]
                 best_dim = each[3]
-                best_fmi_sublist = each[4]
+                best_mi_sublist = each[4]
+                num_selected = each[5]
+
         if best_candidate_subsetData_list:
             best_subsetData_list = reformat_all(best_candidate_subsetData_list, all_classes)
             dim_list.remove(best_dim[0])
             best_dim_list += best_dim
             best_values_list += best_value_list
-            step_fmi_list += best_fmi_sublist
+            step_mi_list += best_mi_sublist
+            assert num_selected == len(best_values_list), "Not same number of cutpoints in Stagewise"
         else:
             stop=True
     pool.close()
-    return best_subsetData_list, step_fmi_list, best_dim_list, best_values_list
+    return best_subsetData_list, np.array(step_mi_list)/h_y, best_dim_list, best_values_list

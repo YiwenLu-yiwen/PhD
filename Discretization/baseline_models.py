@@ -117,8 +117,9 @@ class random_forest:
         rf_imp=random_forest_base_copy.feature_importances_
         cols = X.columns
         rk_dict = dict(zip(cols, rf_imp))
-        rk_dict = {k: v for k, v in sorted(rk_dict.items(), key=lambda item: item[1], reverse=False)}
+        rk_dict = {k:v for k, v in rk_dict.items() if v} # filter non-zero feature importance
         ranking_variables = list(rk_dict.keys()) # lowest feature importance to highest feature importance
+        print(ranking_variables)
         return None,  ranking_variables
 
     

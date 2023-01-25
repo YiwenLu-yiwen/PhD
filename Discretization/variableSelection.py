@@ -3,7 +3,8 @@ from multiprocess import Pool
 from copy import deepcopy
 import timeit
 import pandas as pd
-from data_generator import dataGenerator2d
+from data_generator import dataGenerator2d, dataGenerator
+from binning import equal_width
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -82,7 +83,7 @@ def evaluation_result(selected_variables, pos_variables, neg_variables):
 
 class evaluationExperiment:
 
-    def __init__(self, size, model_dic, dataGenerator=dataGenerator2d, early_stopping=None, permut=True, rr=2, irr=48, verbose=True, data_rep=5, types='mixed_circle') -> None:
+    def __init__(self, size, model_dic, dataGenerator=dataGenerator, rr=2, irr=48, verbose=True, data_rep=5, types='linear') -> None:
         self.size = size
         self.model_dic = model_dic
         self.verbose = verbose
@@ -93,8 +94,6 @@ class evaluationExperiment:
         self.result = dict(zip(size, [{} for _ in size]))
         self.types = types
         self.dataframe = {}
-        self.early_stopping = early_stopping
-        self.permut = permut
 
     def run(self):
         pool = Pool()
@@ -103,29 +102,37 @@ class evaluationExperiment:
             if self.verbose:
                 start = timeit.default_timer()
             for _ in range(self.data_rep):
-                predictors, target = self.dataGenerator(n=size, irr=self.irr, types=self.types).fit()  # for train
+                predictors, target = self.dataGenerator(n=size, rr=self.rr, irr=self.irr, types=self.types).fit()  # for train
                 total_columns = list(predictors.columns)
                 pos_columns = ['X' + str(i) for i in range(self.rr)]
                 neg_columns = [each for each in total_columns if each not in pos_columns]
 
                 for model_name in self.model_dic:
+                    # add time here
+                    model_starttime = timeit.default_timer()
                     tree = deepcopy(self.model_dic[model_name])
-                    if model_name == 'linear':
-                        best_subset, best_aic = tree(predictors, target)
-                    elif model_name == 'joint' or model_name == 'stage':
+                    if model_name in ['linear_base_model', 'lasso_base_model', 'random_forest_wrapper']:
+                        best_aic, best_subset = tree.fit(predictors, target)
+                        best_subset = np.unique(best_subset) # just make sure there is no duplication
+                    elif model_name in ['joint', 'stage', 'joint_modified', 'stage_modified'] :
                         data = deepcopy(predictors)
                         data['Y'] = target
-                        best_subsetData_list, best_aic, dim_list, best_value_list = tree(data, permut=self.permut, early_stopping=self.early_stopping)
+                        best_subsetData_list, best_aic, dim_list, best_value_list = tree.fit(data)             
                         best_subset = np.unique(['X' + str(each) for each in dim_list])
                     else:
                         best_subset, best_aic = variable_sel(predictors, target, pool, tree, best_subset=[])
                     if model_name not in ['linear', 'mi']:
-                        best_aic = abs(best_aic)
+                        try:
+                            best_aic = abs(best_aic)
+                        except:
+                            best_aic = best_aic
 
                     accuracy, recall, precision, f1 = evaluation_result(best_subset, pos_columns, neg_columns)
+                    model_endtime = timeit.default_timer()
+                    model_time = model_endtime - model_starttime
                     if model_name not in self.result[size]:
                         self.result[size][model_name] = {'scores': [best_aic], 'variables': [best_subset], 'accuracy': [accuracy],
-                                                   'recall': [recall], 'precision': [precision], 'f1': [f1]}
+                                                   'recall': [recall], 'precision': [precision], 'f1': [f1], 'time':[model_time]}
                     else:
                         self.result[size][model_name]['variables'].append(best_subset)
                         self.result[size][model_name]['scores'].append(best_aic)
@@ -133,6 +140,7 @@ class evaluationExperiment:
                         self.result[size][model_name]['recall'].append(recall)
                         self.result[size][model_name]['precision'].append(precision)
                         self.result[size][model_name]['f1'].append(f1)
+                        self.result[size][model_name]['time'].append(model_time)
             if self.verbose:
                 end = timeit.default_timer()
                 print('Sample size:', size)

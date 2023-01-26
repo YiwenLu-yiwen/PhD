@@ -1,10 +1,10 @@
 import numpy as np
-from scipy.stats import norm, bernoulli
+from scipy.stats import norm, bernoulli, uniform
 from scipy.special import expit
 import pandas as pd
 import sklearn.datasets as dt
 from sklearn import cluster
-from math import sin
+from math import sin, pi, log2
 
 class dataGenerator2d:
     """
@@ -91,8 +91,8 @@ class dataGenerator:
         # self.noise = noise
         self.rr = rr
 
-    def generate_independent(self, num_variables):
-        predictor_list = [norm(0, 1).rvs(size=self.n) for _ in range(num_variables)]
+    def generate_independent(self, num_variables, method=norm(0, 1)):
+        predictor_list = [method.rvs(size=self.n) for _ in range(num_variables)]
         return predictor_list
 
     def generate_bernoulli_target(self, predictor_list):
@@ -100,19 +100,22 @@ class dataGenerator:
 
 
     ########## relationship ##########
-    def generate_power(self, variable):
-        return np.array(variable) ** 3
+    def _power(self, variable):
+        return np.array(3-variable) ** 3
 
-    def generate_square(self, variable):
+    def _square(self, variable):
         return np.array(variable) ** 2
     
-    def generate_square_root(self, variable):
-        return np.array(variable) ** 0.5   
+    def _square_root(self, variable):
+        return np.array(variable) ** 0.5
+    
+    def _log(self, variable):
+        return np.array(list(map(log2, variable)))
 
-    def generate_sin(self, variable):
+    def _sin(self, variable):
         return np.array(list(map(sin, variable)))
     
-    def generate_2_power(self, variable):
+    def _2_power(self, variable):
         return 2 ** variable
     ##################################
     def fit(self):
@@ -135,14 +138,20 @@ class dataGenerator:
         return predictor_list, target
 
     def fit_non_linear(self):
-        # Y = \sum x_i^3 + x_^2 + x^0.5 
-        # ^3
-        default_variables = self.generate_independent(self.rr)
-        # ^2
-
-        # \sqrt
-
-        pass
+        # We have transformation f(X) = sinx, g(x) = x^2, h(x) = log(x), k(x) = x^0.5, l(x) = (3-x)^3 
+        # Y = ber(\sigma(f(X_1) + g(X_2) + h(X_3) + k(X_4) + l(X_5)) # e.g. we have 5 relevant variables. 
+        # If we have 10, 15 variables, we repeat all these functions once/ twice. 
+        predictor_list = self.generate_independent(self.rr, method=uniform(0, pi * 2))
+        assert self.rr%5 == 0, 'Only accept 5*n relevant variables'
+        y_hat = 0
+        for _ in range(0, self.rr, 5):
+            y_hat += self._sin(predictor_list[0])
+            y_hat += self._square(predictor_list[1])
+            y_hat += self._log(predictor_list[2])
+            y_hat += self._square_root(predictor_list[3])
+            y_hat += self._power(predictor_list[4])
+        target = bernoulli.rvs(expit(y_hat))
+        return predictor_list, target
 
 
 

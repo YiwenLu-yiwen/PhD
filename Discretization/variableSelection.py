@@ -3,7 +3,7 @@ from multiprocess import Pool
 from copy import deepcopy
 import timeit
 import pandas as pd
-from data_generator import dataGenerator2d, dataGenerator
+from data_generator import generateData
 from binning import equal_width
 import warnings
 warnings.filterwarnings("ignore")
@@ -83,44 +83,38 @@ def evaluation_result(selected_variables, pos_variables, neg_variables):
 
 class evaluationExperiment:
 
-    def __init__(self, size, model_dic, dataGenerator=dataGenerator, rr=2, irr=48, verbose=True, data_rep=5, types='linear') -> None:
+    def __init__(self, size, model_dic, data_rep, dataGenerator, verbose=True) -> None:
         self.size = size
         self.model_dic = model_dic
         self.verbose = verbose
         self.data_rep = data_rep
         self.dataGenerator = dataGenerator
-        self.irr = irr
-        self.rr = rr
         self.result = dict(zip(size, [{} for _ in size]))
-        self.types = types
         self.dataframe = {}
 
     def run(self):
         pool = Pool()
-
         for size in self.size:
             if self.verbose:
                 start = timeit.default_timer()
             for _ in range(self.data_rep):
-                predictors, target = self.dataGenerator(n=size, rr=self.rr, irr=self.irr, types=self.types).fit()  # for train
+                predictors, target, pos_columns = self.dataGenerator.sample()
                 total_columns = list(predictors.columns)
-                pos_columns = ['X' + str(i) for i in range(self.rr)]
                 neg_columns = [each for each in total_columns if each not in pos_columns]
-
                 for model_name in self.model_dic:
                     # add time here
                     model_starttime = timeit.default_timer()
                     tree = deepcopy(self.model_dic[model_name])
-                    if model_name in ['linear_base_model', 'lasso_base_model', 'random_forest_wrapper']:
-                        best_aic, best_subset = tree.fit(predictors, target)
-                        best_subset = np.unique(best_subset) # just make sure there is no duplication
-                    elif model_name in ['joint', 'stage', 'joint_modified', 'stage_modified'] :
+                    if 'joint' in model_name or 'stage' in model_name:
                         data = deepcopy(predictors)
                         data['Y'] = target
                         best_subsetData_list, best_aic, dim_list, best_value_list = tree.fit(data)             
                         best_subset = np.unique(['X' + str(each) for each in dim_list])
                     else:
-                        best_subset, best_aic = variable_sel(predictors, target, pool, tree, best_subset=[])
+                        # best_subset, best_aic = variable_sel(predictors, target, pool, tree, best_subset=[])
+                        best_aic, best_subset = tree.fit(predictors, target)
+                        best_subset = np.unique(best_subset) # just make sure there is no duplication
+                        
                     if model_name not in ['linear', 'mi']:
                         try:
                             best_aic = abs(best_aic)

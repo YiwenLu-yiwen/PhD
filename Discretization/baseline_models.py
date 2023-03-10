@@ -93,7 +93,7 @@ class lasso_base_model:
     Output:
         variable index list: for example X_1, X_2 will covert to [0, 1]
     """
-    def __init__(self, base_model=LogisticRegressionCV(penalty='l1', solver='liblinear', random_state=seeds)) -> None:
+    def __init__(self, base_model=LogisticRegressionCV(penalty='l1', solver='saga', random_state=seeds)) -> None:
         self.base_model = base_model
 
     def fit(self, X, y):

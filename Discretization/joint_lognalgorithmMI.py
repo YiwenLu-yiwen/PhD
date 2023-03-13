@@ -399,7 +399,7 @@ class stageWiseDiscretizationMI:
         sort_data_list = [data[data[:, dim].argsort()][:,dim] for dim in dims_list]
         n_bins = n_bins if self.n_bins else math.ceil(np.log2(sample_size))
         sort_all_bin = [self.bin_method(sort_data_list[dim], k=n_bins) for dim in dims_list] if self.pre_discretized else [[]for dim in dims_list]
-        pre_best_mi, num_pre_bins = h_y, 1
+        pre_best_mi, num_pre_bins = 0, 1
         while not stop:
             # initialization
             best_dim, best_candidate_subsetData_list = None, []
@@ -445,5 +445,5 @@ class stageWiseDiscretizationMI:
             else:
                 stop=True
         pool.close()
-        self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list = best_subsetData_list, np.array(step_mi_list)/h_y, best_dim_list, best_value_list
-        return self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list, len(self.best_subsetData_list), len(self.dim_list)
+        self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list = best_subsetData_list, np.array(step_mi_list), best_dim_list, best_values_list
+        return self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list, len(self.best_subsetData_list)

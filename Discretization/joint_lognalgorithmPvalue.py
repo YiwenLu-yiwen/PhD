@@ -354,7 +354,7 @@ def optSingleDimension(sorted_data, sort_dim_bin, dim, best_subsetData_list, sam
                     SingleDimension(sorted_data, sort_dim_bin, dim, best_subsetData_list, sample_size, h_y, best_mi, permut, early_stopping, pre_discretized, selected_bins, num_cutpoints, num_selected, delta)
 
         if early_stopping == 'chi_square_adjust' or early_stopping == 'chi_square':
-            new_delta = delta/(num_cutpoints - num_selected -1)
+            new_delta = delta/(num_cutpoints - num_selected)
         else:
             new_delta = delta
         if p_current <= new_delta:
@@ -371,7 +371,7 @@ def optSingleDimension(sorted_data, sort_dim_bin, dim, best_subsetData_list, sam
             stop=True
     return best_subsetData_list, best_mi, value_list, dim_list, best_mi_list, num_selected, p_best
 
-class stageWiseDiscretization1:
+class stageWiseDiscretizationPvalue:
     """Main algorithm
     data: data matrix
     permut: True if use permutation
@@ -447,5 +447,5 @@ class stageWiseDiscretization1:
             else:
                 stop=True
         pool.close()
-        self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list = deepcopy(best_subsetData_list), np.array(step_mi_list)/h_y, best_dim_list, best_values_list
-        return self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list, len(self.best_subsetData_list), len(self.dim_list)
+        self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list = deepcopy(best_subsetData_list), np.array(step_mi_list), best_dim_list, best_values_list
+        return self.best_subsetData_list, self.step_mi_list, self.dim_list, self.cutpoint_list, len(self.best_subsetData_list)

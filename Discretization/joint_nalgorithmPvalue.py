@@ -166,10 +166,10 @@ class efficientJointDiscretizationPvalue(Binning):
                                                                                                         deepcopy(cond_entr), mean_cond_entr_star, i_star, num_after_bins
             
             if self.delta_correction:
-                if not self.duplicate:
-                    delta = self.delta/((n-1)*p - len(values)-1)
+                if self.duplicate:
+                    delta = self.delta/((n-1)*p - len(values))
                 else:
-                    delta = self.delta/((n-1)*(p - len(values)-1))
+                    delta = self.delta/((n-1)*(p - len(values)))
             if p_best <= delta and current_dim != -1:
                 best_bins, best_max_bin, best_counts, best_y_counts, best_cond_entr = deepcopy(current_bins), current_max_bin, deepcopy(current_counts),\
                                                                                     deepcopy(current_y_counts), current_cond_entr

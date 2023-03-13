@@ -144,9 +144,11 @@ class efficientJointDiscretizationMI(Binning):
         values, step_fmi, dims_list = [], [], []
         orders = [sigma[:, j] for j in range(p)]
         col_nums = [_ for _ in range(p)]
-        pre_mean_cond_entr_star = entro_y
+        best_mean_cond_entr_star = entro_y
         delta = self.delta
         num_pre_bins = 1
+        current_mean_cond_entr_star = np.infty
+        best_bins, best_counts, best_y_counts, best_cond_entr = [], [1], [], []
         while True:
             best_star = -1
             best_dim = -1
@@ -154,21 +156,23 @@ class efficientJointDiscretizationMI(Binning):
             for j in range(len(result)):
                 mean_cond_entr_star, i_star, bins, max_bin, counts, y_counts, cond_entr, num_after_bins = result[j]
                 
-                if best_mean_cond_entr_star > mean_cond_entr_star and i_star != -1:
-                    best_dim = col_nums[j]
-                    best_bins, best_max_bin, best_counts, best_y_counts, best_cond_entr, best_mean_cond_entr_star, best_star, best_num_after_bins = deepcopy(bins), max_bin, \
+                if current_mean_cond_entr_star > mean_cond_entr_star and i_star != -1:
+                    current_dim = col_nums[j]
+                    current_bins, current_max_bin, current_counts, current_y_counts, current_cond_entr, current_mean_cond_entr_star, current_star, current_num_after_bins = deepcopy(bins), max_bin, \
                                                                                                         deepcopy(counts), deepcopy(y_counts), \
                                                                                                         deepcopy(cond_entr), mean_cond_entr_star, i_star, num_after_bins
                 
-            degree_of_freedom = best_num_after_bins - num_pre_bins
+            degree_of_freedom = current_num_after_bins - num_pre_bins
             if self.delta_correction:
-                if not self.duplicate:
-                    delta = self.delta/(n*(p - len(values)-1))
+                if self.duplicate:
+                    delta = self.delta/(n*p - len(values))
                 else:
-                    delta = self.delta/(n*p - len(values)-1)
-            if match_stopping(pre_mean_cond_entr_star, best_mean_cond_entr_star, size=n, degree_of_freedom=degree_of_freedom, delta=delta, typ=self.early_stopping):
-                pre_mean_cond_entr_star = best_mean_cond_entr_star
-                num_pre_bins = best_num_after_bins
+                    delta = self.delta/(n*(p - len(values)))
+            if match_stopping(best_mean_cond_entr_star, current_mean_cond_entr_star, size=n, degree_of_freedom=degree_of_freedom, delta=delta, typ=self.early_stopping):
+                best_bins, best_max_bin, best_counts, best_y_counts, best_cond_entr = deepcopy(current_bins), current_max_bin, deepcopy(current_counts),\
+                                                                                    deepcopy(current_y_counts), current_cond_entr
+                best_mean_cond_entr_star, best_star, best_dim = current_mean_cond_entr_star, current_star, current_dim
+                num_pre_bins = current_num_after_bins
                 binning = Binning(x=x, 
                                 y=y, 
                                 bins=best_bins,

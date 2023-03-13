@@ -50,7 +50,7 @@ def single_loop(node_list, dim, value, y_dict):
     gains = info_gain(node_list, y_dict)
     return gains, new_node_list, dim, value
 
-def partial_comparison(data, node_list, y_dict, pool):
+def partial_comparison(data, node_list, y_dict, pool, dims_list, duplicates):
     node_list_list, dim_list, value_list = list(), list(), list()
     for dim in range(len(data[0])):
         uniq_values = np.unique(data[:, dim])
@@ -64,6 +64,8 @@ def partial_comparison(data, node_list, y_dict, pool):
     gains_list = pool.starmap(info_gain, zip(new_node_list_list, y_dic_list))
     final_gain, final_dim = -1, -1
     for i in range(len(gains_list)):
+        if not duplicates and i in dims_list:
+            continue
         if gains_list[i] > final_gain:
             # if final_dim !=-1 and final_dim < dim_list[i]:
             #     continue
@@ -75,9 +77,10 @@ def partial_comparison(data, node_list, y_dict, pool):
 
 class simpleJointDiscretizationPvalue:
 
-    def __init__(self, early_stopping, delta=0.05) -> None:
+    def __init__(self, early_stopping, duplicate=False, delta=0.05) -> None:
         self.early_stopping = early_stopping
         self.delta = delta
+        self.duplicates = duplicate
         pass
 
     def fit(self, data, target):
@@ -87,12 +90,13 @@ class simpleJointDiscretizationPvalue:
         pool = Pool()
         dim_list, value_list, final_gain, previous_gain, node_list = [], [], -np.infty, 0, [deepcopy(data)]
         y_dict = dict(zip([tuple(each) for each in data], target))
+        duplicates_list = [self.duplicates for _ in range(n)]
         data, target = check_X_y(data, target)
         stop=False
         step_mi_list= []
         num_pre_bins = 1
         while not stop:
-            final_gain, final_nodes, final_dim, final_value = partial_comparison(data, node_list, y_dict, pool)
+            final_gain, final_nodes, final_dim, final_value = partial_comparison(data, node_list, y_dict, pool, deepcopy(dim_list), duplicates_list)
             
             if self.early_stopping == 'chi_square_adjust':
                 new_delta = self.delta/(n*p-len(value_list)-1)

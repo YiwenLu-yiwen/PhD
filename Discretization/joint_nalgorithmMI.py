@@ -9,16 +9,16 @@ def entropy_from_counts(counts):
     n = np.sum(counts)
     if n==0: return 0
     counts = np.array([each for each in counts if each])
-    return np.log2(n) - np.sum(counts*np.log2(counts))/n
+    return np.log(n) - np.sum(counts*np.log(counts))/n
 
 def incremental_entropy(h_old, n, c_old, c_new):
     delta = c_new - c_old
     if n == 0 or n == -delta: # old or new histogram empty
         return 0.0
     else:
-        new_term = c_new*np.log2(c_new) if c_new > 0 else 0
-        old_term = c_old*np.log2(c_old) if c_old > 0 else 0
-        return np.log2(n+delta)-(new_term + n*(np.log2(n)-h_old) - old_term)/(n+delta)
+        new_term = c_new*np.log(c_new) if c_new > 0 else 0
+        old_term = c_old*np.log(c_old) if c_old > 0 else 0
+        return np.log(n+delta)-(new_term + n*(np.log(n)-h_old) - old_term)/(n+delta)
 
 class Binning:
 

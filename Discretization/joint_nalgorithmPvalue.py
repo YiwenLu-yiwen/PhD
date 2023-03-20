@@ -132,19 +132,19 @@ class Binning:
 
 class efficientJointDiscretizationPvalue(Binning):
 
-    def __init__(self, permut=False, duplicate=True, early_stopping=None, delta_correction=True, delta=0.05, cutpointoption=None, cutpointlimit=None):
+    def __init__(self, permut=False, duplicate=True, early_stopping='chi_square_adjust', holm_correction=True, delta=0.05, cutpointoption='100percentile', remove_criteria=None):
         self.permut = permut
         self.duplicate = duplicate
         self.early_stopping = early_stopping
         self.delta = delta
-        self.delta_correction = delta_correction
+        self.holm_correction = holm_correction
         self.cutpointoption = cutpointoption
-        self.cutpointlimit = cutpointlimit
+        self.remove_criteria = remove_criteria
     
     def fit(self, x, y, bins=None):
         pool = Pool()
         n, p = x.shape
-        n_delta = n
+        n_cutpoint = n
         bins = np.zeros(n, dtype=int) if not bins else bins
         binning = super().from_assignment(x, y, bins)
         sigma = np.argsort(x, axis=0)
@@ -177,13 +177,14 @@ class efficientJointDiscretizationPvalue(Binning):
                                                                                                         deepcopy(counts), deepcopy(y_counts), \
                                                                                                         deepcopy(cond_entr), mean_cond_entr_star, i_star, num_after_bins
             if cutpoint_index:
-                n_delta = len(cutpoint_index)
-            if self.delta_correction and not self.cutpointlimit:
+                n_cutpoint = len(cutpoint_index)
+            if self.holm_correction and not self.remove_criteria:
                 if self.duplicate:
-                    delta = self.delta/((n_delta-1)*p - len(values))
+                    delta = self.delta/((n_cutpoint-1)*p - len(values))
                 else:
-                    delta = self.delta/((n_delta-1)*(p - len(values)))
-            if (self.cutpointlimit and self.cutpointlimit > len(dims_list) and current_dim != -1) or (not self.cutpointlimit and p_best < delta and current_dim != -1):
+                    delta = self.delta/((n_cutpoint-1)*(p - len(values)))
+
+            if (self.remove_criteria and self.remove_criteria > len(dims_list) and current_dim != -1) or (not self.remove_criteria and p_best < delta and current_dim != -1):
                 best_bins, best_max_bin, best_counts, best_y_counts, best_cond_entr = deepcopy(current_bins), current_max_bin, deepcopy(current_counts),\
                                                                                     deepcopy(current_y_counts), current_cond_entr
                 best_mean_cond_entr_star, best_star, best_dim = current_mean_cond_entr_star, current_star, current_dim                       
@@ -206,5 +207,5 @@ class efficientJointDiscretizationPvalue(Binning):
             else:
                 pool.close()
                 if not dims_list:
-                    print("size", n, p_best, delta, n_delta)
+                    print("size", n, p_best, delta, n_cutpoint)
                 return dims_list, step_fmi, best_bins, values, best_counts, best_y_counts, best_cond_entr, len([each for each in best_counts if each])

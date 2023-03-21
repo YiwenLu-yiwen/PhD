@@ -3,22 +3,22 @@ import numpy as np
 # from scipy.stats import entropy
 from copy import deepcopy
 from multiprocess import Pool
-from early_stopping import match_stopping
+from early_stopping import match_stopping, chi_square
 
 def entropy_from_counts(counts):
     n = np.sum(counts)
     if n==0: return 0
     counts = np.array([each for each in counts if each])
-    return np.log2(n) - np.sum(counts*np.log2(counts))/n
+    return np.log(n) - np.sum(counts*np.log(counts))/n
 
 def incremental_entropy(h_old, n, c_old, c_new):
     delta = c_new - c_old
     if n == 0 or n == -delta: # old or new histogram empty
         return 0.0
     else:
-        new_term = c_new*np.log2(c_new) if c_new > 0 else 0
-        old_term = c_old*np.log2(c_old) if c_old > 0 else 0
-        return np.log2(n+delta)-(new_term + n*(np.log2(n)-h_old) - old_term)/(n+delta)
+        new_term = c_new*np.log(c_new) if c_new > 0 else 0
+        old_term = c_old*np.log(c_old) if c_old > 0 else 0
+        return np.log(n+delta)-(new_term + n*(np.log(n)-h_old) - old_term)/(n+delta)
 
 class Binning:
 
@@ -68,7 +68,6 @@ class Binning:
         orig = self.bins[i]
         self.bins[i] = dest
         c = self.y[i]
-        # print('before', self.counts[orig], self.counts[dest])
         self.mean_cond_entr = self.mean_cond_entr - self.counts[orig]*self.cond_entr[orig]/self.n - self.counts[dest]*self.cond_entr[dest]/self.n
         self.counts[orig] -= 1
         self.counts[dest] += 1
@@ -82,7 +81,7 @@ class Binning:
         self.cond_entr[dest] = incremental_entropy(self.cond_entr[dest], self.counts[dest]-1, self.y_counts[dest, c]-1, self.y_counts[dest, c])
         self.mean_cond_entr = self.mean_cond_entr + self.counts[orig]*self.cond_entr[orig]/self.n + self.counts[dest]*self.cond_entr[dest]/self.n
 
-    def best_cut_off(self, order,delta, typ):
+    def best_cut_off(self, order, delta, typ, cutpoint_index):
         _max_bin = self.max_bin
         split_off_bins = np.ones(max(self.n, _max_bin)+1, dtype=int)*-1
         origins = np.zeros(self.n, dtype=int)
@@ -90,9 +89,9 @@ class Binning:
         mean_cond_entr_star = self.mean_cond_entr # previous best mean_cond_entr
         num_pre_bins = self.num_bins
         bins, max_bin, counts, y_counts, cond_entr = deepcopy(self.bins), _max_bin, deepcopy(self.counts), deepcopy(self.y_counts), deepcopy(self.cond_entr)
-        i_star = -1
+        i_star, m = -1, 0
         # forward
-        for i in range(self.n):
+        for i in range(self.n): # index in order # can used to identify where is the percentile
             j = order[i] # real data index
             b = self.bins[j] # seek for real data bin index
             if split_off_bins[b] == -1:
@@ -109,8 +108,12 @@ class Binning:
             _b = split_off_bins[b]
             origins[i] = b # aovid creating empty bins
             self.move(j, _b)
-
-            # delta = delta/(n*p-i)
+            
+            if cutpoint_index: 
+                if i  == cutpoint_index[m]: # in 100 percentile, there is no bugs due to add last point inside
+                    m += 1
+                else:
+                    continue
 
             if mean_cond_entr_star > self.mean_cond_entr: 
                 i_star, mean_cond_entr_star, num_pre_bins = order[i], self.mean_cond_entr, self.num_bins
@@ -124,16 +127,19 @@ class Binning:
 
 class efficientJointDiscretizationMI(Binning):
 
-    def __init__(self, permut=False, duplicate=True, early_stopping=None, delta_correction=True, delta=0.05):
+    def __init__(self, permut=False, duplicate=True, early_stopping='chi_square_adjust', holm_correction=True, delta=0.05, cutpointoption='100percentile', remove_criteria=False):
         self.permut = permut
         self.duplicate = duplicate
         self.early_stopping = early_stopping
         self.delta = delta
-        self.delta_correction = delta_correction
+        self.holm_correction = holm_correction
+        self.cutpointoption = cutpointoption
+        self.remove_criteria = remove_criteria
     
     def fit(self, x, y, bins=None):
         pool = Pool()
         n, p = x.shape
+        n_cutpoint = n
         bins = np.zeros(n, dtype=int) if not bins else bins
         binning = super().from_assignment(x, y, bins)
         sigma = np.argsort(x, axis=0)
@@ -143,32 +149,39 @@ class efficientJointDiscretizationMI(Binning):
         entro_y = entropy_from_counts(cnts)
         values, step_fmi, dims_list = [], [], []
         orders = [sigma[:, j] for j in range(p)]
-        col_nums = [_ for _ in range(p)]
+        cols = [_ for _ in range(p)]
         best_mean_cond_entr_star = entro_y
-        delta = self.delta
         num_pre_bins = 1
         current_mean_cond_entr_star = np.infty
         best_bins, best_counts, best_y_counts, best_cond_entr = [], [1], [], []
+        cutpoint_index = []
+        if self.cutpointoption == '100percentile':
+            for i in range(0, 100+1):
+                cutpoint_index.append(round(np.percentile(np.arange(n), i)))
+            cutpoint_index = list(set(cutpoint_index))
         while True:
             best_star = -1
-            best_dim = -1
-            result = pool.starmap(binning.best_cut_off, zip(orders, [self.delta for _ in orders], [self.early_stopping for _ in orders]))
+            best_dim, current_dim = -1, -1
+            result = pool.starmap(binning.best_cut_off, zip(orders, [self.delta for _ in orders], [self.early_stopping for _ in orders], [cutpoint_index for _ in orders]))
             for j in range(len(result)):
                 mean_cond_entr_star, i_star, bins, max_bin, counts, y_counts, cond_entr, num_after_bins = result[j]
-                
+
                 if current_mean_cond_entr_star > mean_cond_entr_star and i_star != -1:
-                    current_dim = col_nums[j]
+                    current_dim = cols[j]
                     current_bins, current_max_bin, current_counts, current_y_counts, current_cond_entr, current_mean_cond_entr_star, current_star, current_num_after_bins = deepcopy(bins), max_bin, \
                                                                                                         deepcopy(counts), deepcopy(y_counts), \
                                                                                                         deepcopy(cond_entr), mean_cond_entr_star, i_star, num_after_bins
-                
+            
             degree_of_freedom = current_num_after_bins - num_pre_bins
-            if self.delta_correction:
+            if self.cutpointoption:
+                n_cutpoint = len(cutpoint_index)
+            if self.holm_correction and not self.remove_criteria:
                 if self.duplicate:
-                    delta = self.delta/(n*p - len(values))
+                    delta = self.delta/((n_cutpoint-1)*p - len(values))
                 else:
-                    delta = self.delta/(n*(p - len(values)))
-            if match_stopping(best_mean_cond_entr_star, current_mean_cond_entr_star, size=n, degree_of_freedom=degree_of_freedom, delta=delta, typ=self.early_stopping):
+                    delta = self.delta/((n_cutpoint-1)*(p - len(values)))
+
+            if (self.remove_criteria and 100 > len(dims_list) and current_dim != -1) or (not self.remove_criteria and match_stopping(best_mean_cond_entr_star, current_mean_cond_entr_star, size=n, degree_of_freedom=degree_of_freedom, delta=delta, typ=self.early_stopping) and current_dim != -1):
                 best_bins, best_max_bin, best_counts, best_y_counts, best_cond_entr = deepcopy(current_bins), current_max_bin, deepcopy(current_counts),\
                                                                                     deepcopy(current_y_counts), current_cond_entr
                 best_mean_cond_entr_star, best_star, best_dim = current_mean_cond_entr_star, current_star, current_dim
@@ -186,8 +199,11 @@ class efficientJointDiscretizationMI(Binning):
                 fmi = 1- best_mean_cond_entr_star/entro_y
                 step_fmi.append(fmi)
                 if not self.duplicate:
-                    orders = [sigma[:, each] for each in col_nums if each != best_dim]
-                    col_nums.remove(best_dim)
+                    cols.remove(best_dim)
+                    sigma_hat = sigma[:, cols]
+                    orders = [sigma_hat[:, j] for j in range(sigma_hat.shape[1])]
             else:
                 pool.close()
+                if not dims_list:
+                    print("size", n, n_cutpoint, abs(best_mean_cond_entr_star - current_mean_cond_entr_star), chi_square(best_mean_cond_entr_star, current_mean_cond_entr_star, size=n, degree_of_freedom=degree_of_freedom), delta)
                 return dims_list, step_fmi, best_bins, values, best_counts, best_y_counts, best_cond_entr, len([each for each in best_counts if each])

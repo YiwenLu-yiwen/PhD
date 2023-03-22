@@ -76,22 +76,22 @@ class Binning2:
         """move real data index j to new bin
         """
         b = self.bins[j]
-        if split_off_bins[b] == -1:
+        if b not in split_off_bins:
             self.max_bin += 1
             split_off_bins[b] = self.max_bin
         _b = split_off_bins[b]
-        return b, _b
+        return b, _b, split_off_bins
     
     def apply_cut_off(self, l, order):
-        split_off_bins = np.ones(self.n, dtype=int)*-1
+        split_off_bins = {}
         for i in range(l+1):
             j = order[i]
-            _, _b = self.move_to_cut_off(j, split_off_bins)
+            _, _b, split_off_bins = self.move_to_cut_off(j, split_off_bins)
             self.move(j, _b)
 
     def best_cut_off(self, order, obj, cutpoint_index=None):
         _max_bin = self.max_bin
-        split_off_bins = np.ones(self.n, dtype=int)*-1
+        split_off_bins = {}
         origins = np.zeros(self.n, dtype=int)
         obj_star = float('inf')
         i_star = -1
@@ -99,7 +99,7 @@ class Binning2:
         # forward
         for i in range(self.n):
             j = order[i]
-            b, _b = self.move_to_cut_off(j, split_off_bins)
+            b, _b, split_off_bins = self.move_to_cut_off(j, split_off_bins)
             origins[i] = b
             self.move(j, _b)
             obj_value = obj(self)

@@ -114,7 +114,7 @@ class Binning2:
                 i_star, obj_star = i, obj_value
         
         # rewind
-        m = min(self.n-1, m)
+        m = min(self.n-1, cutpoint_index[-1])
         for i in range(m, -1, -1):
             j = order[i]
             self.move(j, origins[i])

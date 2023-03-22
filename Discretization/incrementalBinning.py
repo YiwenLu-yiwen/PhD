@@ -107,7 +107,7 @@ class Binning2:
             if cutpoint_index is not None:
                 if len(cutpoint_index) > m and cutpoint_index[m] == i:
                     m += 1
-                elif len(cutpoint_index) == m:
+                if len(cutpoint_index) == m:
                     break
                 else:
                     continue
@@ -115,7 +115,7 @@ class Binning2:
                 i_star, obj_star = i, obj_value
         
         # rewind
-        m = min(self.n-1, cutpoint_index[-1]) if cutpoint_index is not None else self.n-1
+        m = min(self.n-1, cutpoint_index[-1]+1) if cutpoint_index is not None else self.n-1
         for i in range(m, -1, -1):
             j = order[i]
             self.move(j, origins[i])

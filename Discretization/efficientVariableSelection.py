@@ -47,21 +47,15 @@ class VariableSelection:
                 holm_duplicate: use holm_correction but allow selecting duplicate variables.
                 holm_unique: use holm_correction but allow selecting unique variables.
                 orginal: keep orginal delta
-
-            num_cutpoints: integers. limited of cutpoints per dimension. The number of cutpoints is uniformed distributed in 100 percentiles. 
-                This will influences holm correction. e.g. if num_cutpoints=None, we consider all data points; if num_cutpoints=100, we consider 100 percentiles; 
-                if num_cutpoints=10, we consider [0, 10, .., 90] percentiles.
-
         """
         self.delta = delta
         self.base = base
         self.criteria = criteria
         self.num_cutpoints = num_cutpoints
-        self.selected_cuts_ = []
-        self.selected_mean_cond_entr_ = []
     
     def fit(self, x, y):
         binning = Binning2.trivial(x, y)
+        k = len(np.unique(y))
         orders = np.argsort(x, axis=0)
         self.n_, self.p_ = x.shape
         dims_ = np.arange(self.p_)
@@ -69,6 +63,8 @@ class VariableSelection:
         delta = self.delta
         t = 0
         pool=Pool()
+        selected_cuts_ = []
+        selected_mean_cond_entr_ = []
         if self.num_cutpoints is not None:
             cutpoint_index = create_cutpoint_index_obj(np.arange(self.n_), self.num_cutpoints)
         else:
@@ -87,15 +83,15 @@ class VariableSelection:
             cond_entr_new = binning.mean_cond_entr
             params_new = binning.non_empty_bin_count
             if self.base == 'mi':
-                p_value = 1 - chi2.cdf(2*self.n_*(cond_ent_old-cond_entr_new), params_new-params_old)
+                p_value = 1 - chi2.cdf(2*self.n_*(cond_ent_old-cond_entr_new), (params_new-params_old)*(k-1))
             elif self.base == 'p_value':
                 p_value = obj_star
             n_ = self.n_ if self.num_cutpoints is None else self.num_cutpoints # if multi-target, should be (k-1)*df
             delta = update_delta(self.delta, n_, self.p_, t, self.criteria)
             if p_value <= delta:
                 selected[j_star] = True
-                self.selected_cuts_.append((j_star, x[orders[i_star, j_star], j_star]))
-                self.selected_mean_cond_entr_.append((j_star, cond_entr_new))
+                selected_cuts_.append((j_star, x[orders[i_star, j_star], j_star]))
+                selected_mean_cond_entr_.append((j_star, cond_entr_new))
             else:
                 break
             t += 1
@@ -106,7 +102,7 @@ class VariableSelection:
                 orders = orders[:, dims_]
 
         self.selected_ = np.flatnonzero(selected)
-        return self
+        return self, binning, selected_cuts_, selected_mean_cond_entr_
 
     def transform(self, x, y):
         return x[:, self.selected_], y

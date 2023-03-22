@@ -52,6 +52,8 @@ class VariableSelection:
         self.base = base
         self.criteria = criteria
         self.num_cutpoints = num_cutpoints
+        self.selected_cuts_ = []
+        self.selected_mean_cond_entr_ = []
     
     def fit(self, x, y):
         binning = Binning2.trivial(x, y)
@@ -60,11 +62,8 @@ class VariableSelection:
         dims_ = np.arange(self.p_)
         selected = np.zeros(self.p_, bool)
         delta = self.delta
-        obj = cond_entr_obj
         t = 0
         pool=Pool()
-        selected_cuts_ = []
-        selected_mean_cond_entr_ = []
         if self.num_cutpoints is not None:
             cutpoint_index = create_cutpoint_index_obj(np.arange(self.n_), self.num_cutpoints)
         else:
@@ -90,8 +89,8 @@ class VariableSelection:
             delta = update_delta(self.delta, n_, self.p_, t, self.criteria)
             if p_value <= delta:
                 selected[j_star] = True
-                selected_cuts_.append((j_star, x[orders[i_star, j_star], j_star]))
-                selected_mean_cond_entr_.append((j_star, cond_entr_new))
+                self.selected_cuts_.append((j_star, x[orders[i_star, j_star], j_star]))
+                self.selected_mean_cond_entr_.append((j_star, cond_entr_new))
             else:
                 break
             t += 1
@@ -102,7 +101,7 @@ class VariableSelection:
                 orders = orders[:, dims_]
 
         self.selected_ = np.flatnonzero(selected)
-        return self, binning, selected_cuts_, selected_mean_cond_entr_
+        return self
 
     def transform(self, x, y):
         return x[:, self.selected_], y

@@ -53,6 +53,7 @@ class Binning2:
         self.non_empty_bin_count = non_empty_bin_count
         self.old_mean_cond_entr = mean_cond_entr
         self.old_non_empty_bin_count = non_empty_bin_count
+        self.k_ = len(np.unique(y))
 
     def move(self, i, dest):
         orig = self.bins[i]

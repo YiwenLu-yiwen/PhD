@@ -81,7 +81,7 @@ class Binning2:
             split_off_bins[b] = self.max_bin
         _b = split_off_bins[b]
         return b, _b
-        
+    
     def apply_cut_off(self, l, order):
         split_off_bins = np.ones(self.n, dtype=int)*-1
         for i in range(l+1):
@@ -89,12 +89,13 @@ class Binning2:
             _, _b = self.move_to_cut_off(j, split_off_bins)
             self.move(j, _b)
 
-    def best_cut_off(self, order, obj):
+    def best_cut_off(self, order, obj, cutpoint_index=None):
         _max_bin = self.max_bin
         split_off_bins = np.ones(self.n, dtype=int)*-1
         origins = np.zeros(self.n, dtype=int)
         obj_star = float('inf')
         i_star = -1
+        m = 0 if cutpoint_index is not None else self.n-1
         # forward
         for i in range(self.n):
             j = order[i]
@@ -102,11 +103,19 @@ class Binning2:
             origins[i] = b
             self.move(j, _b)
             obj_value = obj(self)
+            if cutpoint_index is not None:
+                if len(cutpoint_index) > m and cutpoint_index[m] == i:
+                    m += 1
+                elif len(cutpoint_index) == m:
+                    break
+                else:
+                    continue
             if obj_value < obj_star:
                 i_star, obj_star = i, obj_value
         
         # rewind
-        for i in range(self.n-1, -1, -1):
+        m = min(self.n-1, m)
+        for i in range(m, -1, -1):
             j = order[i]
             self.move(j, origins[i])
         self.max_bin = _max_bin

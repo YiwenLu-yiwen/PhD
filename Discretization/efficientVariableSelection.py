@@ -23,9 +23,17 @@ def chi_square_obj(binning):
     df = binning.non_empty_bin_count-binning.old_non_empty_bin_count
     return 1 - chi2.cdf(2*binning.n*(binning.old_mean_cond_entr-binning.mean_cond_entr), df)
 
+def create_cutpoint_index_obj(data_index_list, num_cutpoints):
+    base = int(100/num_cutpoints)
+    cutpoint_range = [_*base for _ in range(num_cutpoints)]
+    cutpoints_index = set()
+    for each in cutpoint_range:
+        cutpoints_index.add(int(np.ceil(np.percentile(data_index_list, each))))
+    return sorted(list(cutpoints_index))
+
 class VariableSelection:
 
-    def __init__(self, delta=0.05, base='mi', criteria='orginal'):
+    def __init__(self, delta=0.05, base='mi', criteria='orginal', num_cutpoints=None):
         """
             base: We apply two different methods to compare cutpoints.
 
@@ -43,7 +51,8 @@ class VariableSelection:
         self.delta = delta
         self.base = base
         self.criteria = criteria
-
+        self.num_cutpoints = num_cutpoints
+    
     def fit(self, x, y):
         binning = Binning2.trivial(x, y)
         orders = np.argsort(x, axis=0)
@@ -56,10 +65,15 @@ class VariableSelection:
         pool=Pool()
         selected_cuts_ = []
         selected_mean_cond_entr_ = []
+        if self.num_cutpoints is not None:
+            cutpoint_index = create_cutpoint_index_obj(np.arange(self.n_), self.num_cutpoints)
+        else:
+            cutpoint_index = None
         while True:
             j_star, i_star, obj_star = -1, -1, float('inf')
             obj = cond_entr_obj if self.base == 'mi' else chi_square_obj
-            res = pool.starmap(binning.best_cut_off, zip([orders[:, _] for _ in range(orders.shape[1])], [obj for _ in range(orders.shape[1])]))
+            res = pool.starmap(binning.best_cut_off, zip([orders[:, _] for _ in range(orders.shape[1])], [obj for _ in range(orders.shape[1])], 
+                                                        [cutpoint_index for _ in range(orders.shape[1])]))
             for j in range(len(dims_)):
                 if res[j][1] < obj_star:
                     j_star, i_star, obj_star = j, res[j][0], res[j][1]
@@ -72,7 +86,8 @@ class VariableSelection:
                 p_value = 1 - chi2.cdf(2*self.n_*(cond_ent_old-cond_entr_new), params_new-params_old)
             elif self.base == 'p_value':
                 p_value = obj_star
-            delta = update_delta(self.delta, self.n_, self.p_, t, self.criteria)
+            n_ = self.n_ if self.num_cutpoints is None else self.num_cutpoints # if multi-target, should be (k-1)*df
+            delta = update_delta(self.delta, n_, self.p_, t, self.criteria)
             if p_value <= delta:
                 selected[j_star] = True
                 selected_cuts_.append((j_star, x[orders[i_star, j_star], j_star]))

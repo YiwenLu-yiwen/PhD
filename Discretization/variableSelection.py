@@ -3,8 +3,14 @@ from multiprocess import Pool
 from copy import deepcopy
 import timeit
 import pandas as pd
-from data_generator import generateData
 from binning import equal_width
+from joint_lognalgorithmPvalue import jointDiscretizationPvalue#, stageWiseDiscretizationP
+# from joint_n2algorithm1 import simpleJointDiscretization1
+from joint_nalgorithmPvalue import efficientJointDiscretizationPvalue
+from joint_nalgorithmMI import efficientJointDiscretizationMI
+from baseline_models import random_forest
+from efficientVariableSelection import VariableSelection
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -74,6 +80,7 @@ def evaluate(tp, fp, tn, fn):
 def evaluation_result(selected_variables, pos_variables, neg_variables):
     """Combine the evaluation part to get the accuracy, recall, precision, f1
     """
+    selected_variables = list(set(selected_variables))
     tp = sum([1 for each in selected_variables if each in pos_variables])
     fp = sum([1 for each in selected_variables if each in neg_variables])
     tn = len(neg_variables) - fp
@@ -83,62 +90,70 @@ def evaluation_result(selected_variables, pos_variables, neg_variables):
 
 class evaluationExperiment:
 
-    def __init__(self, size, model_dic, data_rep, dataGenerator, verbose=True) -> None:
-        self.size = size
+    def __init__(self, data, target, model_dic, pos_variables, neg_variables, verbose=True, oracle=False) -> None:
         self.model_dic = model_dic
         self.verbose = verbose
-        self.data_rep = data_rep
-        self.dataGenerator = dataGenerator
-        self.result = dict(zip(size, [{} for _ in size]))
-        self.dataframe = {}
+        self.result = {}
+        self.data = data
+        self.target = target
+        self.pos_columns = pos_variables
+        self.neg_columns = neg_variables
+        self.oracle = oracle
 
     def run(self):
         pool = Pool()
-        for size in self.size:
-            if self.verbose:
-                start = timeit.default_timer()
-            for _ in range(self.data_rep):
-                predictors, target, pos_columns = self.dataGenerator.sample()
-                total_columns = list(predictors.columns)
-                neg_columns = [each for each in total_columns if each not in pos_columns]
-                for model_name in self.model_dic:
-                    # add time here
-                    model_starttime = timeit.default_timer()
-                    tree = deepcopy(self.model_dic[model_name])
-                    if 'joint' in model_name or 'stage' in model_name:
-                        data = deepcopy(predictors)
-                        data['Y'] = target
-                        best_subsetData_list, best_aic, dim_list, best_value_list = tree.fit(data)             
-                        best_subset = np.unique(['X' + str(each) for each in dim_list])
-                    else:
-                        # best_subset, best_aic = variable_sel(predictors, target, pool, tree, best_subset=[])
-                        best_aic, best_subset = tree.fit(predictors, target)
-                        best_subset = np.unique(best_subset) # just make sure there is no duplication
-                        
-                    if model_name not in ['linear', 'mi']:
-                        try:
-                            best_aic = abs(best_aic)
-                        except:
-                            best_aic = best_aic
+        if self.verbose:
+            start = timeit.default_timer()
 
-                    accuracy, recall, precision, f1 = evaluation_result(best_subset, pos_columns, neg_columns)
-                    model_endtime = timeit.default_timer()
-                    model_time = model_endtime - model_starttime
-                    if model_name not in self.result[size]:
-                        self.result[size][model_name] = {'scores': [best_aic], 'variables': [best_subset], 'accuracy': [accuracy],
-                                                   'recall': [recall], 'precision': [precision], 'f1': [f1], 'time':[model_time]}
-                    else:
-                        self.result[size][model_name]['variables'].append(best_subset)
-                        self.result[size][model_name]['scores'].append(best_aic)
-                        self.result[size][model_name]['accuracy'].append(accuracy)
-                        self.result[size][model_name]['recall'].append(recall)
-                        self.result[size][model_name]['precision'].append(precision)
-                        self.result[size][model_name]['f1'].append(f1)
-                        self.result[size][model_name]['time'].append(model_time)
-            if self.verbose:
-                end = timeit.default_timer()
-                print('Sample size:', size)
-                print('Time(s):', end - start)
+        predictors, target = self.data, self.target
+        pos_columns = self.pos_columns
+        neg_columns = self.neg_columns
+
+        for model_name in self.model_dic:
+            # add time here
+            model_starttime = timeit.default_timer()
+            tree = deepcopy(self.model_dic[model_name])
+            if type(tree) in [VariableSelection]:
+                result = tree.fit(deepcopy(predictors).values, target)
+                dim_list, best_aic, _bins, n_vars  = tree.selected_, [], None, None
+                best_subset = ['X' + str(each) for each in dim_list]
+            elif type(tree) in [efficientJointDiscretizationMI, efficientJointDiscretizationPvalue]:
+                result = tree.fit(deepcopy(predictors).values, target) 
+                dim_list, best_aic, _bins, n_vars  = result[0], result[1], result[-1], result[3]   
+                best_subset = ['X' + str(each) for each in dim_list]
+            else:
+                best_aic, best_subset = tree.fit(predictors, target)
+                _bins, n_vars = -1, -1
+                
+            if model_name not in ['linear', 'mi']:
+                try:
+                    best_aic = abs(best_aic)
+                except:
+                    best_aic = best_aic
+            
+            if type(tree) in [random_forest] or self.oracle: # random forest oracle settings
+                recall, precision, f1 = 0, 0, 0
+                _variables = []
+                for each in best_subset:
+                    _variables.append(each)
+                    accuracy, recall_hat, precision_hat, f1_hat = evaluation_result(_variables, pos_columns, neg_columns)
+                    if f1_hat > f1:
+                        recall, precision, f1 = recall_hat, precision_hat, f1_hat
+                        best_variables = deepcopy(_variables)
+                if f1 == 0:
+                    best_subset = deepcopy(best_subset)
+                else:
+                    best_subset = deepcopy(best_variables)
+            else:
+                accuracy, recall, precision, f1 = evaluation_result(best_subset, pos_columns, neg_columns)
+            model_endtime = timeit.default_timer()
+            model_time = model_endtime - model_starttime
+            self.result[model_name] = {'scores': [best_aic], 'variables': best_subset, 'accuracy': [accuracy],
+                                        'recall': [recall], 'precision': [precision], 'f1': [f1], 'time':[model_time],
+                                        'n_bins': [_bins], 'n_vars': [n_vars]}
+        if self.verbose:
+            end = timeit.default_timer()
+            print('Time(s):', end - start)
         pool.close()
         return self.result
 

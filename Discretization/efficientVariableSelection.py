@@ -47,6 +47,11 @@ class VariableSelection:
                 holm_duplicate: use holm_correction but allow selecting duplicate variables.
                 holm_unique: use holm_correction but allow selecting unique variables.
                 orginal: keep orginal delta
+
+            num_cutpoints: integers. limited of cutpoints per dimension. The number of cutpoints is uniformed distributed in 100 percentiles. 
+                This will influences holm correction. e.g. if num_cutpoints=None, we consider all data points; if num_cutpoints=100, we consider 100 percentiles; 
+                if num_cutpoints=10, we consider [0, 10, .., 90] percentiles.
+
         """
         self.delta = delta
         self.base = base

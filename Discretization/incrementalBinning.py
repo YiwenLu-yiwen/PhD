@@ -112,7 +112,7 @@ class Binning2:
                     break
                 else:
                     continue
-            if criteria in ['holm_duplicate', 'holm_unique']:
+            if criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:
                 if obj_value < obj_star:
                     i_star, obj_star = i, obj_value
             elif criteria in ['sine_duplicate', 'sine_unique']:
@@ -125,7 +125,7 @@ class Binning2:
             j = order[i]
             self.move(j, origins[i])
         self.max_bin = _max_bin
-        if criteria in ['holm_duplicate', 'holm_unique']:
+        if criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:
             return i_star, obj_star
         elif criteria in ['sine_duplicate', 'sine_unique']:
             return value_lst

@@ -69,6 +69,10 @@ def sample_polynomial(n_vars, num_terms, degree, alpha=None, beta=0.5, random_st
         c = truncated_multinomial_rv(num_terms, alpha, b, random_state=RNG)
         # print(c)
         res = set()
+        p_monomial = np.ones(n_vars)/n_vars
+        p_nomial = np.ones(n_vars)/n_vars
+        nomial_index = set()
+        monomial_index = set()
         for i in range(degree):
             order_i = set()
             # if c[i] <= b[i]/2:
@@ -76,13 +80,17 @@ def sample_polynomial(n_vars, num_terms, degree, alpha=None, beta=0.5, random_st
                 if RNG.random()<=beta:
                     if beta==1 and i==0: # fix the bugs if we only need interaction terms
                         break
-                    monomial = tuple(multinomial.rvs(i+1, np.ones(n_vars)/n_vars, random_state=RNG))
-                    if not is_pure(monomial): order_i.add(monomial)
+                    monomial = tuple(multinomial.rvs(i+1, p_monomial, random_state=RNG))
+                    if not is_pure(monomial): 
+                        order_i.add(monomial)
+                        # for each in monomial:
+                        #     if each: monomial_index.add(each)
                 else:
-                    var_idx = RNG.choice(n_vars)
+                    var_idx = RNG.choice(n_vars, p=p_nomial)
                     monomial = [0]*n_vars
                     monomial[var_idx] = i+1
                     order_i.add(tuple(monomial))
+                    nomial_index.add(var_idx)
             res = res.union(order_i)
         res = np.array(list(res))
         cnt=0
@@ -94,7 +102,8 @@ def sample_polynomial(n_vars, num_terms, degree, alpha=None, beta=0.5, random_st
 
 class dataGenerator:
 
-    def __init__(self, n, p, r, num_terms, degree, alpha=None, beta=0.5, random_state=None, rho=0.8, SNR=1, model='binomial') -> None:
+    def __init__(self, n, p, r, num_terms, degree, alpha=None, beta=0.5, random_state=None, rho=0.8, SNR=1, model='binomial',
+                 parms=[]) -> None:
         self.n=n
         self.p=p
         self.r=r
@@ -106,6 +115,7 @@ class dataGenerator:
         self.rho=rho
         self.SNR=SNR
         self.model=model
+        self.parms=np.array(parms)
 
     def generateX(self):
         """Generate original feature space X
@@ -174,10 +184,12 @@ class dataGenerator:
         while True:
             df_X, X, btrue, variable_lst, formula = self.testX()
             b0=0
+            if self.parms != []:
+                snr, y, mu, v = self.glmpredict(X.T, self.parms, b0, self.model)
+                return df_X, y, variable_lst, self.parms, Markdown("$$" + formula + '$$'), formula
             if self.model not in ['binomial', 'multinomial']:
                 raise Exception("Only accept binomial and multinomial")
-            if self.random_state:
-                np.random.RandomState(seed=self.random_state)
+            
             try:
                 g = minimize(self.optimize_func, x0=0, args=(X.T, btrue, b0, self.model, self.SNR))
             except:
@@ -199,4 +211,4 @@ class dataGenerator:
             if len(set(y)) != 1:
                 break
         # print(snr)
-        return df_X, y, variable_lst, btrue, Markdown("$$" + formula + '$$')
+        return df_X, y, variable_lst, btrue, Markdown("$$" + formula + '$$'), formula

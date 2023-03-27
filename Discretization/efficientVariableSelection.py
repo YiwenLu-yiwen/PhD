@@ -10,11 +10,11 @@ def cond_entr_obj(binning):
 def update_alpha(org_alpha, n, p, i, criteria):
     """i means selected points in i-1 iteration
     """
-    if criteria is None or criteria == 'holm_duplicate' or criteria == 'sine_duplicate':
+    if criteria is None or criteria == 'bonferroni_duplicate' or criteria == 'sine_duplicate':
         return org_alpha/(n*p-i)
     elif criteria is None or criteria == 'orginal':
         return org_alpha
-    elif criteria == 'holm_unique' or criteria == 'sine_unique':
+    elif criteria == 'bonferroni_unique' or criteria == 'sine_unique':
         return org_alpha/(n*(p-i))
     
 def chi_square_obj(binning):
@@ -29,7 +29,8 @@ def chi_square_cond_entr_obj(binning):
         return
     return (chi_square_obj(binning), cond_entr_obj(binning))
 
-def create_cutpoint_index_obj(data_index_list, num_cutpoints):
+def create_cutpoint_index_obj(data_index_list, gamma):
+    num_cutpoints = int(len(data_index_list)**gamma)
     base = int(100/num_cutpoints)
     cutpoint_range = [_*base for _ in range(num_cutpoints)]
     cutpoints_index = set()
@@ -39,19 +40,19 @@ def create_cutpoint_index_obj(data_index_list, num_cutpoints):
 
 class VariableSelection:
 
-    def __init__(self, alpha=0.05, base='mi', criteria='orginal', num_cutpoints=None, oracle=False):
+    def __init__(self, alpha=0.05, base='mi', criteria='orginal', gamma=1, oracle=False):
         """
             base: We apply two different methods to compare cutpoints.
                 mi: use pearson naive mutual information
                 p_value: use chi square hypothesis test value
-            criteria: We apply holm correction in criteria: alpha/(np-i), where n is sample size, p is dimensions, 
+            criteria: We apply bonferroni correction in criteria: alpha/(np-i), where n is sample size, p is dimensions, 
                       i is the number of iteration.
                       We adapt sine correction, ranking p-value and ja/m, j is the rank of current cutpoint based on p-values,
                       m is the remain cutpoints.
 
-                None: remove all criteria, will stop after selecting 100 cutpoints by using holm_correction.
-                holm_duplicate: use holm_correction but allow selecting duplicate variables.
-                holm_unique: use holm_correction but allow selecting unique variables.
+                None: remove all criteria, will stop after selecting 100 cutpoints by using bonferroni_correction.
+                bonferroni_duplicate: use bonferroni_correction but allow selecting duplicate variables.
+                bonferroni_unique: use bonferroni_correction but allow selecting unique variables.
                 sine_duplicate: use sine correction
                 sine_unique: use sine correction
                 orginal: keep orginal alpha
@@ -59,7 +60,7 @@ class VariableSelection:
         self.alpha = alpha
         self.base = base
         self.criteria = criteria
-        self.num_cutpoints = num_cutpoints
+        self.gamma = gamma
         self.oracle = oracle
     
     def fit(self, x, y):
@@ -68,20 +69,19 @@ class VariableSelection:
         orders = np.argsort(x, axis=0)
         orders_new = np.argsort(x, axis=0)
         self.n_, self.p_ = x.shape
-        selected = np.zeros(self.p_, bool)
+        self.num_cuts_selected_ = np.zeros(self.p_, int)
         dims_ = np.arange(self.p_)
         alpha = self.alpha
         t = 0
         pool=Pool()
-        cutpoint_index = None if self.num_cutpoints is None else create_cutpoint_index_obj(np.arange(self.n_), self.num_cutpoints)
+        cutpoint_index = create_cutpoint_index_obj(np.arange(self.n_), self.gamma)
         if self.criteria in ['sine_duplicate', 'sine_unique']:
             obj = chi_square_cond_entr_obj
         elif self.base=='p_value':
             obj = chi_square_obj
         elif self.base=='mi':
             obj = cond_entr_obj
-
-        n_ = self.n_ if self.num_cutpoints is None else self.num_cutpoints # if multi-target, should be (k-1)*df
+        n_ = len(cutpoint_index) # if multi-target, should be (k-1)*df
         while True:
             j_star, i_star, obj_star = -1, -1, float('inf')
             if n_ * self.p_ - t == 0 or self.p_ == t: break
@@ -91,7 +91,7 @@ class VariableSelection:
                                                         [self.criteria for _ in range(orders_new.shape[1])], 
                                                         dims_))
 
-            if self.criteria in ['holm_duplicate', 'holm_unique']:          
+            if self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:          
                 for j in range(len(dims_)):
                     if res[j][1] < obj_star:
                         j_star, i_star, obj_star = dims_[j], res[j][0], res[j][1]
@@ -107,24 +107,24 @@ class VariableSelection:
                     break                    
                 else:
                     j_star, i_star, obj_star = res[0][3], res[0][2], res[0][0]
-                p_value = obj_star
+            p_value = obj_star
             cond_ent_old = binning.mean_cond_entr
             params_old = binning.non_empty_bin_count
             binning.apply_cut_off(i_star, orders[:, j_star])
             cond_entr_new = binning.mean_cond_entr
             params_new = binning.non_empty_bin_count
-            if self.criteria in ['holm_duplicate', 'holm_unique']:
+            if self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:
                 if self.base == 'mi':
                     p_value = 1 - chi2.cdf(2*self.n_*(cond_ent_old-cond_entr_new), (params_new-params_old)*(binning.k_-1))
                 elif self.base == 'p_value':
                     p_value = obj_star
             
-            if (p_value <= alpha and self.criteria in ['holm_duplicate', 'holm_unique']) or self.criteria in ['sine_duplicate', 'sine_unique'] or self.oracle:
-                selected[j_star] = True
+            if (self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal'] and p_value <= alpha) or self.criteria in ['sine_duplicate', 'sine_unique'] or self.oracle:
+                self.num_cuts_selected_[j_star] += 1
                 binning.old_mean_cond_entr = cond_entr_new
                 binning.old_non_empty_bin_count = params_new
                 binning.dim_p_value_.append((j_star, p_value))
-                if self.criteria == 'holm_unique' or self.criteria == 'sine_unique':
+                if self.criteria == 'bonferroni_unique' or self.criteria == 'sine_unique':
                     dims_ = [each for each in dims_ if each != j_star]
                     orders_new = orders[:, dims_]
             else:
@@ -133,7 +133,8 @@ class VariableSelection:
                 break
             t += 1
 
-        self.selected_ = np.flatnonzero(selected)
+        self.selected_ = np.flatnonzero(self.num_cuts_selected_)
+        self.num_cuts_selected_ = self.num_cuts_selected_[self.selected_]
         return self, binning
 
     def transform(self, x, y):

@@ -8,13 +8,13 @@ def entropy_from_counts(counts):
     return np.log(n) - sum(counts*np.log(counts))/n
 
 def incremental_entropy(h_old, n, c_old, c_new):
-    delta = c_new - c_old
-    if n == 0 or n == -delta: # old or new histogram empty
+    alpha = c_new - c_old
+    if n == 0 or n == -alpha: # old or new histogram empty
         return 0.0
     else:
         new_term = c_new*np.log(c_new) if c_new > 0 else 0
         old_term = c_old*np.log(c_old) if c_old > 0 else 0
-        return np.log(n+delta)-(new_term + n*(np.log(n)-h_old) - old_term)/(n+delta)
+        return np.log(n+alpha)-(new_term + n*(np.log(n)-h_old) - old_term)/(n+alpha)
     
 class Binning2:
 
@@ -90,13 +90,14 @@ class Binning2:
             _, _b, split_off_bins = self.move_to_cut_off(j, split_off_bins)
             self.move(j, _b)
 
-    def best_cut_off(self, order, obj, cutpoint_index=[]):
+    def best_cut_off(self, order, obj, cutpoint_index=None, criteria=None, dim=None):
         _max_bin = self.max_bin
         split_off_bins = {}
         origins = np.zeros(self.n, dtype=int)
         obj_star = float('inf')
         i_star = -1
-        m = 0
+        m = 0 if cutpoint_index is not None else self.n-1
+        value_lst = []
         # forward
         for i in range(self.n):
             j = order[i]
@@ -104,21 +105,27 @@ class Binning2:
             origins[i] = b
             self.move(j, _b)
             obj_value = obj(self)
-            if cutpoint_index:
+            if cutpoint_index is not None:
                 if len(cutpoint_index) > m and cutpoint_index[m] == i:
                     m += 1
                 elif len(cutpoint_index) == m:
                     break
                 else:
                     continue
-            if obj_value < obj_star:
-                i_star, obj_star = i, obj_value
+            if criteria in ['holm_duplicate', 'holm_unique']:
+                if obj_value < obj_star:
+                    i_star, obj_star = i, obj_value
+            elif criteria in ['sine_duplicate', 'sine_unique']:
+                if obj_value is not None:
+                    value_lst.append((obj_value[0], obj_value[1], i, dim))
         
         # rewind
-        end_index = min(self.n-1, i)
-        for i in range(end_index, -1, -1):
+        m = min(self.n-1, i) if cutpoint_index is not None else self.n-1
+        for i in range(m, -1, -1):
             j = order[i]
             self.move(j, origins[i])
         self.max_bin = _max_bin
-
-        return i_star, obj_star
+        if criteria in ['holm_duplicate', 'holm_unique']:
+            return i_star, obj_star
+        elif criteria in ['sine_duplicate', 'sine_unique']:
+            return value_lst

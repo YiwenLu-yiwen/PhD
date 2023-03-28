@@ -90,7 +90,7 @@ class Binning2:
             _, _b, split_off_bins = self.move_to_cut_off(j, split_off_bins)
             self.move(j, _b)
 
-    def best_cut_off(self, order, obj, cutpoint_index=None, criteria=None, dim=None):
+    def best_cut_off(self, order, obj, cutpoint_index=None, criteria=None, dim=None, oracle=False):
         _max_bin = self.max_bin
         split_off_bins = {}
         origins = np.zeros(self.n, dtype=int)
@@ -112,7 +112,7 @@ class Binning2:
                     break
                 else:
                     continue
-            if criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:
+            if criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal'] or oracle:
                 if obj_value < obj_star:
                     i_star, obj_star = i, obj_value
             elif criteria in ['sine_duplicate', 'sine_unique']:
@@ -125,7 +125,7 @@ class Binning2:
             j = order[i]
             self.move(j, origins[i])
         self.max_bin = _max_bin
-        if criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:
+        if criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal'] or oracle:
             return i_star, obj_star
         elif criteria in ['sine_duplicate', 'sine_unique']:
             return value_lst

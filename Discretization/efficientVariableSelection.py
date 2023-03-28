@@ -75,7 +75,7 @@ class VariableSelection:
         t = 0
         pool=Pool()
         cutpoint_index = create_cutpoint_index_obj(np.arange(self.n_), self.gamma)
-        if self.criteria in ['sine_duplicate', 'sine_unique']:
+        if self.criteria in ['sine_duplicate', 'sine_unique'] and not self.oracle:
             obj = chi_square_cond_entr_obj
         elif self.base=='p_value':
             obj = chi_square_obj
@@ -91,7 +91,7 @@ class VariableSelection:
                                                         [self.criteria for _ in range(orders_new.shape[1])], 
                                                         dims_))
 
-            if self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:          
+            if self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal'] or self.oracle:          
                 for j in range(len(dims_)):
                     if res[j][1] < obj_star:
                         j_star, i_star, obj_star = dims_[j], res[j][0], res[j][1]
@@ -103,10 +103,15 @@ class VariableSelection:
                     if res[_rank][0] > alpha * (_rank+1):
                         fail_cnt += 1
                         continue
-                if (fail_cnt == _rank + 1 and not self.oracle) or not res:
+                if (fail_cnt == _rank + 1) or not res:
                     break                    
-                else:
+                elif self.base == 'p_value':
                     j_star, i_star, obj_star = res[0][3], res[0][2], res[0][0]
+                elif self.base == 'mi':
+                    res = [(code[1], code[0], code[2]) for each in res for code in each]
+                    res.sort()
+                    j_star, i_star, obj_star = res[0][3], res[0][2], res[0][0]
+
             p_value = obj_star
             cond_ent_old = binning.mean_cond_entr
             params_old = binning.non_empty_bin_count

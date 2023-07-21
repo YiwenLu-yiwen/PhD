@@ -1,145 +1,112 @@
 import numpy as np
 from scipy.stats import chi2
 from multiprocess import Pool
+from incrementalBinning import Binning2, BinningOneDim
+import pandas as pd
 from copy import deepcopy
-from incrementalBinning import Binning2
+# from numba import njit
 
 def cond_entr_obj(binning):
     return binning.mean_cond_entr
 
-def update_alpha(org_alpha, n, p, i, criteria):
-    """i means selected points in i-1 iteration
-    """
-    if criteria is None or criteria == 'bonferroni_duplicate' or criteria == 'sine_duplicate':
-        return org_alpha/(n*p-i)
-    elif criteria is None or criteria == 'orginal':
-        return org_alpha
-    elif criteria == 'bonferroni_unique' or criteria == 'sine_unique':
-        return org_alpha/(n*(p-i))
-    
 def chi_square_obj(binning):
     """i means selected points in i-1 iteration
     """
-    df = binning.non_empty_bin_count-binning.old_non_empty_bin_count
-    return 1 - chi2.cdf(2*binning.n*(binning.old_mean_cond_entr-binning.mean_cond_entr), df*(binning.k_-1))
+    increased_df = binning.non_empty_bin_count-binning.old_non_empty_bin_count
+    return chi2.sf(2*binning.n*(binning.old_mean_cond_entr-binning.mean_cond_entr), increased_df*(binning.k_-1))
 
+# @njit
+# def chi_square_cond_entr_obj(binning):
+#     """Get chi square and conditional entropy
+#     """
+#     return (chi_square_obj(binning), cond_entr_obj(binning))
 
-def chi_square_cond_entr_obj(binning):
-    if binning.non_empty_bin_count==binning.old_non_empty_bin_count:
-        return
-    return (chi_square_obj(binning), cond_entr_obj(binning))
+def create_cutpoint_index_obj(_n, gamma, dims):
+    """Generate cutpoint index for each variable constantly
+    """
+    bins = int(_n ** gamma) if gamma <= 1 else gamma
+    cut_index, i, j = [], 0, 1
+    line = pd.cut(np.arange(_n), bins=bins+1, labels=False)
+    while i < _n-1:
+        if line[j] != line[i]:
+            cut_index.append(i)
+        i += 1
+        j += 1
+    return [cut_index] * dims
 
-def create_cutpoint_index_obj(data_index_list, gamma):
-    num_cutpoints = int(len(data_index_list)**gamma)
-    base = int(100/num_cutpoints)
-    cutpoint_range = [_*base for _ in range(num_cutpoints)]
-    cutpoints_index = set()
-    for each in cutpoint_range:
-        cutpoints_index.add(int(np.ceil(np.percentile(data_index_list, each))))
-    return sorted(list(cutpoints_index))
+class VariableSelectionOracle:
 
-class VariableSelection:
-
-    def __init__(self, alpha=0.05, base='mi', criteria='orginal', gamma=1, oracle=False):
+    def __init__(self, base='mi', gamma=10, multi_var=True, reliable=False, verbose=False):
         """
             base: We apply two different methods to compare cutpoints.
                 mi: use pearson naive mutual information
                 p_value: use chi square hypothesis test value
-            criteria: We apply bonferroni correction in criteria: alpha/(np-i), where n is sample size, p is dimensions, 
-                      i is the number of iteration.
-                      We adapt sine correction, ranking p-value and ja/m, j is the rank of current cutpoint based on p-values,
-                      m is the remain cutpoints.
-
-                None: remove all criteria, will stop after selecting 100 cutpoints by using bonferroni_correction.
-                bonferroni_duplicate: use bonferroni_correction but allow selecting duplicate variables.
-                bonferroni_unique: use bonferroni_correction but allow selecting unique variables.
-                sine_duplicate: use sine correction
-                sine_unique: use sine correction
-                orginal: keep orginal alpha
+            criteria: We don't apply any criteria until we have selected all variables or we don't have enough bins.
         """
-        self.alpha = alpha
         self.base = base
-        self.criteria = criteria
         self.gamma = gamma
-        self.oracle = oracle
+        self.multi_var = multi_var
+        self.reliable = reliable
+        self.verbose = verbose
     
-    def fit(self, x, y):
-        binning = Binning2.trivial(x, y)
-        binning.dim_p_value_ = []
+    def fit(self, x, y, rr_vars=None):
+        self.x = x
+        binning = Binning2.trivial(x, y, reliable=self.reliable)
+        binning.dim_point_value_ = []
         orders = np.argsort(x, axis=0)
-        orders_new = np.argsort(x, axis=0)
         self.n_, self.p_ = x.shape
-        self.num_cuts_selected_ = np.zeros(self.p_, int)
+        self.num_cuts_selected_ = np.zeros(self.p_, dtype=int)
         dims_ = np.arange(self.p_)
-        alpha = self.alpha
-        t = 0
-        pool=Pool()
-        cutpoint_index = create_cutpoint_index_obj(np.arange(self.n_), self.gamma)
-        if self.criteria in ['sine_duplicate', 'sine_unique'] and not self.oracle:
-            obj = chi_square_cond_entr_obj
-        elif self.base=='p_value':
+        cutpoint_index_list = create_cutpoint_index_obj(self.n_, self.gamma, self.p_)
+        if self.base=='p_value':
             obj = chi_square_obj
         elif self.base=='mi':
             obj = cond_entr_obj
-        n_ = len(cutpoint_index) # if multi-target, should be (k-1)*df
         while True:
             j_star, i_star, obj_star = -1, -1, float('inf')
-            if n_ * self.p_ - t == 0 or self.p_ == t: break
-            alpha = update_alpha(self.alpha, n_, self.p_, t, self.criteria)
-            res = pool.starmap(binning.best_cut_off, zip([orders_new[:, _] for _ in range(orders_new.shape[1])], [obj for _ in range(orders_new.shape[1])], 
-                                                        [cutpoint_index for _ in range(orders_new.shape[1])],
-                                                        [self.criteria for _ in range(orders_new.shape[1])], 
-                                                        dims_))
-
-            if self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal'] or self.oracle:          
-                for j in range(len(dims_)):
-                    if res[j][1] < obj_star:
-                        j_star, i_star, obj_star = dims_[j], res[j][0], res[j][1]
-            elif self.criteria in ['sine_duplicate', 'sine_unique']:
-                res = [code for each in res for code in each]
-                res.sort()
-                fail_cnt = 0
-                for _rank in range(len(res)):
-                    if res[_rank][0] > alpha * (_rank+1):
-                        fail_cnt += 1
-                        continue
-                if (fail_cnt == _rank + 1) or not res:
-                    break                    
-                elif self.base == 'p_value':
-                    j_star, i_star, obj_star = res[0][3], res[0][2], res[0][0]
-                elif self.base == 'mi':
-                    res = [(code[1], code[0], code[2]) for each in res for code in each]
-                    res.sort()
-                    j_star, i_star, obj_star = res[0][3], res[0][2], res[0][0]
-
-            p_value = obj_star
-            cond_ent_old = binning.mean_cond_entr
-            params_old = binning.non_empty_bin_count
+            pool=Pool()
+            res = pool.starmap(binning.best_cut_off, zip([orders[:, _] for _ in dims_], 
+                                                         [obj for _ in range(len(dims_))], 
+                                                         cutpoint_index_list,
+                                                         [dim for dim in dims_]))
+            pool.close()
+            for j in range(len(dims_)):
+                if res[j][1] < obj_star:
+                    j_star, i_star, obj_star = dims_[j], res[j][0], res[j][1]
+                
+            # stop algorithm if not selecting anything
+            if i_star == -1 or j_star == -1:
+                break
+            # if p_value is 1 or mi is 0, stop algorithm
+            if (self.base=='p_value' and obj_star == 1) or (self.base=='mi' and obj_star == 0):
+                break
+            cond_entr_old = binning.mean_cond_entr
+            df_old = binning.non_empty_bin_count
             binning.apply_cut_off(i_star, orders[:, j_star])
+            if binning.dim_point_value_ == []:
+                binning.dim_point_value_.append((-1, None, float('inf'), cond_entr_old, None))
             cond_entr_new = binning.mean_cond_entr
-            params_new = binning.non_empty_bin_count
-            if self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal']:
-                if self.base == 'mi':
-                    p_value = 1 - chi2.cdf(2*self.n_*(cond_ent_old-cond_entr_new), (params_new-params_old)*(binning.k_-1))
-                elif self.base == 'p_value':
-                    p_value = obj_star
-            
-            if (self.criteria in ['bonferroni_duplicate', 'bonferroni_unique', 'orginal'] and p_value <= alpha) or self.criteria in ['sine_duplicate', 'sine_unique'] or self.oracle:
-                self.num_cuts_selected_[j_star] += 1
-                binning.old_mean_cond_entr = cond_entr_new
-                binning.old_non_empty_bin_count = params_new
-                binning.dim_p_value_.append((j_star, p_value))
-                if self.criteria == 'bonferroni_unique' or self.criteria == 'sine_unique':
-                    dims_ = [each for each in dims_ if each != j_star]
-                    orders_new = orders[:, dims_]
-            else:
+            df_new = binning.non_empty_bin_count
+            if df_old == df_new or cond_entr_old <= cond_entr_new: # determine reliable estimation
                 break
-            if self.oracle and (len(binning.dim_p_value_) > 100 or cond_ent_old==cond_entr_new or params_new==params_old):
-                break
-            t += 1
-
+            # drop dims if we don't have enough cutpoints
+            self.num_cuts_selected_[j_star] += 1
+            binning.old_mean_cond_entr = cond_entr_new
+            binning.old_non_empty_bin_count = df_new
+            if self.verbose:
+                print(binning.dim_point_value_)
+            binning.dim_point_value_.append((j_star, x[orders[i_star, j_star], j_star], obj_star, cond_entr_old-cond_entr_new, df_new-df_old))
+            cutpoint_index_list[j_star] = \
+                [each for each in cutpoint_index_list[j_star] if each != i_star]
+            if self.multi_var == False:
+                cutpoint_index_list[j_star] = []
+            # add stop signs
+            if rr_vars is not None and rr_vars != []:
+                if (self.num_cuts_selected_[rr_vars] !=0).all() == True:
+                    break
         self.selected_ = np.flatnonzero(self.num_cuts_selected_)
         self.num_cuts_selected_ = self.num_cuts_selected_[self.selected_]
+        self.binning = binning
         return self, binning
 
     def transform(self, x, y):
@@ -147,3 +114,135 @@ class VariableSelection:
     
     def fit_transform(self, x, y):
         return self.fit(x, y).transform(x, y)
+    
+    def feature_importance_score(self):
+        self.n_, self.p_ = self.x.shape
+        importance_score = np.zeros(self.p_)
+        for each in self.binning.dim_point_value_[1:]:
+            j_star, _value = each[0], each[-2]
+            importance_score[j_star] += _value
+        return importance_score
+    
+    def order_feature_rank(self):
+        features = []
+        for each in self.binning.dim_point_value_[1:]:
+            if each[0] not in features:
+                features.append(each[0])
+        for each in np.arange(self.p_):
+            if each not in features:
+                features.append(each)
+        return features
+
+    def score_feature_rank(self):
+        return np.argsort(self.feature_importance_score())[::-1]
+    
+    def get_cutpoints(self):
+        cutpoints = []
+        for each in self.binning.dim_point_value_[1:]:
+            cutpoints.append((each[0], each[1]))
+        return cutpoints
+    
+    def apply_cutpoints(self, dim, values):
+        self.x[:, dim] = np.digitize(self.x[:, dim], values)
+        return self.x[:, dim]
+    
+
+
+class VariableSelectionReliable:
+
+    def __init__(self, base='mi', gamma=10, verbose=False):
+        """
+            base: We apply two different methods to compare cutpoints.
+                mi: use pearson naive mutual information
+                p_value: use chi square hypothesis test value
+            criteria: We don't apply any criteria until we have selected all variables or we don't have enough bins.
+        """
+        self.base = base
+        self.gamma = gamma
+        self.reliable = True
+        self.verbose = verbose
+    
+    def fit(self, x, y, rr_vars=None):
+        self.x = x
+        binning = BinningOneDim.trivial(x, y, reliable=self.reliable)
+        binning.dim_point_value_ = []
+        orders = np.argsort(x, axis=0)
+        self.n_, self.p_ = x.shape
+        self.num_cuts_selected_ = np.zeros(self.p_, dtype=int)
+        dims_ = np.arange(self.p_)
+        cutpoint_index_list = create_cutpoint_index_obj(self.n_, self.gamma, self.p_)
+        if self.base=='p_value':
+            obj = chi_square_obj
+        elif self.base=='mi':
+            obj = cond_entr_obj
+        obj_star = float('inf')
+        while True:
+            j_star, dim_point_list = -1, []
+            pool = Pool()
+            res = pool.starmap(binning.best_cut_off_finely, zip([orders[:, _] for _ in dims_], 
+                                                        [obj for _ in range(len(dims_))], 
+                                                        cutpoint_index_list,
+                                                        [dim for dim in dims_]))
+            pool.close()
+            for j in range(len(dims_)):
+                if res[j][1] < obj_star:
+                    j_star, dim_point_list, obj_star, binning = j, res[j][0], res[j][1], deepcopy(res[j][2])
+            # stop algorithm if not selecting anything
+            if dim_point_list == []:
+                break
+            # if p_value is 1 or mi is 0, stop algorithm
+            if (self.base=='p_value' and obj_star == 1) or (self.base=='mi' and obj_star == 0):
+                break
+            cond_entr_old = binning.mean_cond_entr
+            self.num_cuts_selected_[j_star] += 1
+            if binning.dim_point_value_ == []:
+                binning.dim_point_value_.append((-1, None, float('inf'), cond_entr_old, None))
+            if self.verbose:
+                print(binning.dim_point_value_)
+            binning.dim_point_value_ += dim_point_list
+            cutpoint_index_list[j_star] = []
+            if rr_vars is not None and rr_vars != []:
+                if (self.num_cuts_selected_[rr_vars] !=0).all() == True:
+                    break
+        self.selected_ = np.flatnonzero(self.num_cuts_selected_)
+        self.num_cuts_selected_ = self.num_cuts_selected_[self.selected_]
+        self.binning = binning
+        return self, binning
+
+    def transform(self, x, y):
+        return x[:, self.selected_], y
+    
+    def fit_transform(self, x, y):
+        return self.fit(x, y).transform(x, y)
+    
+    def feature_importance_score(self):
+        self.n_, self.p_ = self.x.shape
+        importance_score = np.zeros(self.p_)
+        for each in self.binning.dim_point_value_[1:]:
+            j_star, _value = each[0], each[-2]
+            importance_score[j_star] += _value
+        return importance_score
+    
+    def order_feature_rank(self):
+        features = []
+        for each in self.binning.dim_point_value_[1:]:
+            if each[0] not in features:
+                features.append(each[0])
+        for each in np.arange(self.p_):
+            if each not in features:
+                features.append(each)
+        return features
+
+    def score_feature_rank(self):
+        return np.argsort(self.feature_importance_score())[::-1]
+    
+    def get_cutpoints(self):
+        cutpoints = []
+        for each in self.binning.dim_point_value_[1:]:
+            cutpoints.append((each[0], each[1]))
+        return cutpoints
+    
+    def apply_cutpoints(self, dim, values):
+        self.x[:, dim] = np.digitize(self.x[:, dim], values)
+        return self.x[:, dim]
+
